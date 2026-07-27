@@ -19,7 +19,7 @@ export default function SafetyInvestmentApp() {
 
   const [items, setItems] = useState<any[]>([]);
 
-  // 📍 GPS 현재 위치 주소 자동 등록
+  // 📍 GPS 현재 위치 좌표 자동 입력
   const handleGetLocation = () => {
     if (!navigator.geolocation) {
       alert('GPS를 지원하지 않는 브라우저입니다.');
@@ -38,7 +38,13 @@ export default function SafetyInvestmentApp() {
     );
   };
 
-  // 📸 이미지 선택 처리 (Base64 변환)
+  // 🗺️ 네이버 지도 검색 열기 (위치도 캡처용)
+  const handleOpenNaverMap = () => {
+    const searchQuery = formData.location || formData.facilityName || '삼천리';
+    window.open(`https://map.naver.com/v5/search/${encodeURIComponent(searchQuery)}`, '_blank');
+  };
+
+  // 📸 이미지 선택 처리
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string | null) => void) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -50,7 +56,7 @@ export default function SafetyInvestmentApp() {
     }
   };
 
-  // ➕ 리스트에 데이터 추가
+  // ➕ 리스트에 추가
   const handleAddToList = () => {
     if (!formData.facilityNo || !formData.facilityName) {
       alert('시설번호와 시설명을 입력해주세요.');
@@ -68,23 +74,23 @@ export default function SafetyInvestmentApp() {
 
     setItems([...items, newItem]);
 
-    // 폼 입력값 초기화
+    // 폼 초기화
     setFormData({
       facilityNo: '',
       facilityName: '',
       location: '',
       workName: '밸브 교체',
       reason: '',
-      writer: formData.writer, // 작성자 이름은 유지
+      writer: formData.writer,
       remark: '',
     });
     setMapImage(null);
     setFullImage(null);
     setDetailImage(null);
-    alert('목록에 성공적으로 추가되었습니다!');
+    alert('목록에 추가되었습니다!');
   };
 
-  // 📊 안전투자 양식 엑셀(사진 및 시트 생성) 동적 다운로드
+  // 📊 보내주신 엑셀 양식과 동일하게 엑셀 생성
   const exportToExcel = async () => {
     if (items.length === 0) {
       alert('다운로드할 데이터가 없습니다.');
@@ -92,17 +98,16 @@ export default function SafetyInvestmentApp() {
     }
 
     try {
-      // 빌드 오류 방지를 위한 동적 임포트
       const ExcelJS = (await import('exceljs')).default;
       const { saveAs } = await import('file-saver');
 
       const workbook = new ExcelJS.Workbook();
 
-      // 1. [리스트] 시트 생성
+      // 1. [리스트] 시트
       const listSheet = workbook.addWorksheet('리스트');
       listSheet.addRow(['2026년 안전투자 밸브 교체 사업계획 리스트']);
       listSheet.addRow([]);
-      listSheet.addRow(['구분', '시설번호', '시설명', '시설위치', '등록일자', '작업명', '사유', '작성자', '비고']);
+      listSheet.addRow(['구분', '시설번호', '시설명', '설치장소', '등록일자', '작업명', '사유', '작성자', '비고']);
 
       items.forEach((item, idx) => {
         listSheet.addRow([
@@ -118,18 +123,18 @@ export default function SafetyInvestmentApp() {
         ]);
       });
 
-      // 2. 각 항목별 개별 사진 보고서 시트 생성 (시트명: 1, 2, 3...)
+      // 2. 항목별 개별 시트 (양식 일치)
       items.forEach((item, idx) => {
         const reportSheet = workbook.addWorksheet(`${idx + 1}`);
 
+        // 표 헤더 구성
         reportSheet.addRow(['위 치 도 및 사 진']);
-        reportSheet.addRow([]);
         reportSheet.addRow(['시 설 번 호', item.facilityNo, '', '설 치 장 소', item.location]);
         reportSheet.addRow(['작 업 명', item.workName, '', '사 유', item.reason]);
         reportSheet.addRow([]);
 
-        // 이미지 추가 보조 함수
-        const addPhotoToSheet = (base64Img: string | null, startRow: number) => {
+        // 이미지 배치 보조 함수
+        const addPhotoToSheet = (base64Img: string | null, startRow: number, height: number = 300) => {
           if (!base64Img) return;
           const imageId = workbook.addImage({
             base64: base64Img,
@@ -137,13 +142,16 @@ export default function SafetyInvestmentApp() {
           });
           reportSheet.addImage(imageId, {
             tl: { col: 1, row: startRow },
-            ext: { width: 450, height: 280 },
+            ext: { width: 520, height: height },
           });
         };
 
-        if (item.mapImage) addPhotoToSheet(item.mapImage, 5);
-        if (item.fullImage) addPhotoToSheet(item.fullImage, 21);
-        if (item.detailImage) addPhotoToSheet(item.detailImage, 37);
+        // 위치도(지도 캡처) + 전경사진 + 상세사진 배치
+        if (item.mapImage) addPhotoToSheet(item.mapImage, 5, 280);
+        
+        reportSheet.getCell('B38').value = '현 장 사 진';
+        if (item.fullImage) addPhotoToSheet(item.fullImage, 39, 240);
+        if (item.detailImage) addPhotoToSheet(item.detailImage, 59, 240);
       });
 
       const buffer = await workbook.xlsx.writeBuffer();
@@ -163,7 +171,7 @@ export default function SafetyInvestmentApp() {
             <img src="/logo.png" alt="삼천리 로고" className="h-10 object-contain" />
           </div>
           <h1 className="text-2xl font-black text-slate-900">안전투자 사업계획 등록 시스템</h1>
-          <p className="text-xs text-gray-500">모바일 현장 조사 및 사진 엑셀 출력</p>
+          <p className="text-xs text-gray-500">모바일 현장 조사 및 위치도/사진 엑셀 출력</p>
         </div>
 
         {/* 입력 폼 */}
@@ -187,7 +195,7 @@ export default function SafetyInvestmentApp() {
                 type="text" 
                 value={formData.facilityNo} 
                 onChange={e => setFormData({ ...formData, facilityNo: e.target.value })} 
-                placeholder="예: VPTX0001-1" 
+                placeholder="예: AD" 
                 className="w-full p-2.5 bg-slate-50 border rounded-xl text-sm font-semibold outline-none focus:border-blue-500" 
               />
             </div>
@@ -206,20 +214,29 @@ export default function SafetyInvestmentApp() {
 
           <div>
             <div className="flex justify-between items-center mb-1">
-              <label className="text-xs font-bold text-gray-600">시설 위치 (주소/위치)</label>
-              <button 
-                type="button" 
-                onClick={handleGetLocation} 
-                className="text-[11px] bg-sky-100 text-sky-800 font-bold px-2.5 py-1 rounded-lg hover:bg-sky-200"
-              >
-                📍 GPS 현위치 추출
-              </button>
+              <label className="text-xs font-bold text-gray-600">설치장소 (주소)</label>
+              <div className="flex gap-1.5">
+                <button 
+                  type="button" 
+                  onClick={handleOpenNaverMap} 
+                  className="text-[11px] bg-emerald-100 text-emerald-800 font-bold px-2.5 py-1 rounded-lg hover:bg-emerald-200"
+                >
+                  🗺️ 지도 확인
+                </button>
+                <button 
+                  type="button" 
+                  onClick={handleGetLocation} 
+                  className="text-[11px] bg-sky-100 text-sky-800 font-bold px-2.5 py-1 rounded-lg hover:bg-sky-200"
+                >
+                  📍 GPS 추출
+                </button>
+              </div>
             </div>
             <input 
               type="text" 
               value={formData.location} 
               onChange={e => setFormData({ ...formData, location: e.target.value })} 
-              placeholder="주소 직접 입력 또는 GPS 버튼 터치" 
+              placeholder="예: 공도읍 서동대로 3948" 
               className="w-full p-2.5 bg-slate-50 border rounded-xl text-sm font-semibold outline-none focus:border-blue-500" 
             />
           </div>
@@ -241,38 +258,38 @@ export default function SafetyInvestmentApp() {
                 type="text" 
                 value={formData.reason} 
                 onChange={e => setFormData({ ...formData, reason: e.target.value })} 
-                placeholder="예: 밸브 손상" 
+                placeholder="예: 누환" 
                 className="w-full p-2.5 bg-slate-50 border rounded-xl text-sm font-semibold outline-none focus:border-blue-500" 
               />
             </div>
           </div>
 
-          {/* 사진 첨부 3종 */}
+          {/* 사진 첨부 3종 (위치도 + 전경 + 상세) */}
           <div className="space-y-3 pt-2 border-t">
-            <h3 className="text-xs font-bold text-gray-700">📸 현장 사진 첨부</h3>
+            <h3 className="text-xs font-bold text-gray-700">📸 위치도 및 현장사진 첨부 (총 3장)</h3>
 
             <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="border-2 border-dashed border-slate-200 p-2 rounded-2xl bg-slate-50">
-                <span className="text-[11px] font-bold block mb-1">1. 위치도</span>
+              <div className="border-2 border-dashed border-slate-200 p-2.5 rounded-2xl bg-slate-50">
+                <span className="text-[11px] font-bold block mb-1 text-slate-700">1. 위치도 캡처</span>
                 <input type="file" accept="image/*" onChange={e => handleImageUpload(e, setMapImage)} className="hidden" id="map-upload" />
-                <label htmlFor="map-upload" className="cursor-pointer bg-white border text-xs px-2 py-1.5 rounded-xl font-bold block truncate">
-                  {mapImage ? '✅ 등록됨' : '📸 촬영/선택'}
+                <label htmlFor="map-upload" className="cursor-pointer bg-white border text-xs py-1.5 rounded-xl font-bold block truncate text-blue-600 shadow-sm">
+                  {mapImage ? '✅ 등록' : '🗺️ 선택'}
                 </label>
               </div>
 
-              <div className="border-2 border-dashed border-slate-200 p-2 rounded-2xl bg-slate-50">
-                <span className="text-[11px] font-bold block mb-1">2. 전경사진</span>
+              <div className="border-2 border-dashed border-slate-200 p-2.5 rounded-2xl bg-slate-50">
+                <span className="text-[11px] font-bold block mb-1 text-slate-700">2. 전경 사진</span>
                 <input type="file" accept="image/*" onChange={e => handleImageUpload(e, setFullImage)} className="hidden" id="full-upload" />
-                <label htmlFor="full-upload" className="cursor-pointer bg-white border text-xs px-2 py-1.5 rounded-xl font-bold block truncate">
-                  {fullImage ? '✅ 등록됨' : '📸 촬영/선택'}
+                <label htmlFor="full-upload" className="cursor-pointer bg-white border text-xs py-1.5 rounded-xl font-bold block truncate text-blue-600 shadow-sm">
+                  {fullImage ? '✅ 등록' : '📸 선택'}
                 </label>
               </div>
 
-              <div className="border-2 border-dashed border-slate-200 p-2 rounded-2xl bg-slate-50">
-                <span className="text-[11px] font-bold block mb-1">3. 상세사진</span>
+              <div className="border-2 border-dashed border-slate-200 p-2.5 rounded-2xl bg-slate-50">
+                <span className="text-[11px] font-bold block mb-1 text-slate-700">3. 상세 사진</span>
                 <input type="file" accept="image/*" onChange={e => handleImageUpload(e, setDetailImage)} className="hidden" id="detail-upload" />
-                <label htmlFor="detail-upload" className="cursor-pointer bg-white border text-xs px-2 py-1.5 rounded-xl font-bold block truncate">
-                  {detailImage ? '✅ 등록됨' : '📸 촬영/선택'}
+                <label htmlFor="detail-upload" className="cursor-pointer bg-white border text-xs py-1.5 rounded-xl font-bold block truncate text-blue-600 shadow-sm">
+                  {detailImage ? '✅ 등록' : '📸 선택'}
                 </label>
               </div>
             </div>
@@ -289,7 +306,7 @@ export default function SafetyInvestmentApp() {
         {/* 사업계획 목록 & 엑셀 저장 */}
         <div className="bg-white p-6 rounded-3xl shadow-md border border-slate-200 space-y-4">
           <div className="flex justify-between items-center border-b pb-2">
-            <h2 className="text-base font-bold text-slate-900">📊 사업계획 등록 목록 ({items.length}건)</h2>
+            <h2 className="text-base font-bold text-slate-900">📊 등록 목록 ({items.length}건)</h2>
             <button 
               onClick={exportToExcel} 
               className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-md flex items-center gap-1"
