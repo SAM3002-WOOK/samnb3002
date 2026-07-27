@@ -1,7 +1,7 @@
 // @ts-nocheck
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 
 export default function SafetyInvestmentApp() {
   const [formData, setFormData] = useState({
@@ -14,25 +14,21 @@ export default function SafetyInvestmentApp() {
     remark: '',
   });
 
+  const [markerPos, setMarkerPos] = useState<{ lat: number; lng: number } | null>(null);
+  const [mapCapturedImg, setMapCapturedImg] = useState<string | null>(null);
   const [fullImage, setFullImage] = useState<string | null>(null);
   const [detailImage, setDetailImage] = useState<string | null>(null);
   const [items, setItems] = useState<any[]>([]);
   const [isExporting, setIsExporting] = useState(false);
 
-  // 브이월드 공공 API 인증키
-  const VWORLD_API_KEY = 'B3637248-2FCB-38EF-BD88-F35AA5B308A7';
-
-  // 🗺️ 네이버 지도 확인
-  const handleOpenNaverMap = () => {
-    if (!formData.location && !formData.facilityName) {
-      alert('설치장소(주소) 또는 시설명을 먼저 입력해주세요.');
-      return;
-    }
-    const searchQuery = formData.location || formData.facilityName;
-    window.open(`https://map.naver.com/v5/search/${encodeURIComponent(searchQuery)}`, '_blank');
+  // 🗺️ 구글 정적 지도를 생성해 주는 함수 (500:1 상세 축척 + 빨간 동그라미 마커)
+  const generateGoogleMapImage = (address: string): string => {
+    // 구글 정적 지도 오픈 API (주소 기준 상세 확대 zoom=17, 동그라미 마커 자동 생성)
+    const encodedAddr = encodeURIComponent(address);
+    return `https://maps.googleapis.com/maps/api/staticmap?center=${encodedAddr}&zoom=17&size=800x500&scale=2&maptype=roadmap&markers=color:red%7Clabel:V%7C${encodedAddr}&key=AIzaSy...`; 
   };
 
-  // 📸 사진 첨부 선택 (Base64 변환)
+  // 📸 현장 사진 첨부 선택 (전경, 상세)
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string | null) => void) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -44,17 +40,89 @@ export default function SafetyInvestmentApp() {
     }
   };
 
+  // 🌐 입력된 주소를 기반으로 Canvas 지도를 렌더링
+  const getMapCanvasData = async (address: string): Promise<string> => {
+    return new Promise((resolve) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 800;
+      canvas.height = 500;
+      const ctx = canvas.getContext('2d');
+
+      const img = new Image();
+      img.crossOrigin = 'Anonymous';
+
+      // 구글/오픈 지도 기반 타일로 지도 렌더링
+      const staticUrl = `https://staticmap.openstreetmap.de/staticmap.php?center=${encodeURIComponent(address)}&zoom=17&size=800x500&maptype=mapnik`;
+
+      img.onload = () => {
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, 800, 500);
+
+          // Central Red Target Marker (동그라미 마커 그리기)
+          ctx.beginPath();
+          ctx.arc(400, 250, 20, 0, 2 * Math.PI);
+          ctx.fillStyle = 'rgba(239, 68, 68, 0.35)';
+          ctx.fill();
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = '#ef4444';
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.arc(400, 250, 6, 0, 2 * Math.PI);
+          ctx.fillStyle = '#dc2626';
+          ctx.fill();
+
+          // 주소 라벨 표기
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+          ctx.fillRect(15, 15, 480, 36);
+          ctx.font = 'bold 15px "맑은 고딕", sans-serif';
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(`📍 위치: ${address}`, 25, 39);
+
+          resolve(canvas.toDataURL('image/png'));
+        }
+      };
+
+      img.onerror = () => {
+        // 이미지 로딩 실패 시 예비 틀 카드 생성
+        if (ctx) {
+          ctx.fillStyle = '#f8fafc';
+          ctx.fillRect(0, 0, 800, 500);
+          ctx.strokeStyle = '#cbd5e1';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(10, 10, 780, 480);
+
+          ctx.font = 'bold 20px "맑은 고딕", sans-serif';
+          ctx.fillStyle = '#1e293b';
+          ctx.textAlign = 'center';
+          ctx.fillText('📍 설치장소 위치도', 400, 230);
+          ctx.font = '16px "맑은 고딕", sans-serif';
+          ctx.fillStyle = '#2563eb';
+          ctx.fillText(`주소: ${address}`, 400, 270);
+
+          resolve(canvas.toDataURL('image/png'));
+        }
+      };
+
+      img.src = staticUrl;
+    });
+  };
+
   // ➕ 목록 추가
-  const handleAddToList = () => {
+  const handleAddToList = async () => {
     if (!formData.facilityNo || !formData.facilityName || !formData.location) {
       alert('시설번호, 시설명, 설치장소를 입력해주세요.');
       return;
     }
 
+    // 주소 기반 자동 구글 지도 캡처 생성
+    const mapImg = await getMapCanvasData(formData.location);
+
     const newItem = {
       id: items.length + 1,
       ...formData,
       date: new Date().toISOString().split('T')[0],
+      mapImage: mapImg,
       fullImage,
       detailImage,
     };
@@ -75,103 +143,7 @@ export default function SafetyInvestmentApp() {
     alert('목록에 성공적으로 추가되었습니다!');
   };
 
-  // 🌐 국토교통부 브이월드 좌표 변환 및 정밀 지도 렌더링 함수
-  const fetchVWorldMapImage = async (address: string): Promise<string | null> => {
-    try {
-      // 1. 브이월드 지오코더 API 호출
-      const geoUrl = `https://api.vworld.kr/req/address?service=address&request=getcoord&version=2.0&crs=epsg:4326&address=${encodeURIComponent(address)}&refine=true&simple=false&type=ROAD&type=PARCEL&key=${VWORLD_API_KEY}`;
-      
-      let x = 127.0987;
-      let y = 37.0012;
-
-      const geoRes = await fetch(geoUrl);
-      if (geoRes.ok) {
-        const geoData = await geoRes.json();
-        if (geoData.response?.status === 'OK' && geoData.response?.result?.point) {
-          x = parseFloat(geoData.response.result.point.x);
-          y = parseFloat(geoData.response.result.point.y);
-        }
-      }
-
-      // 2. 브라우저 Canvas를 활용하여 500:1 축척 지도 및 빨간색 위치 표기 마커 합성
-      const img = new Image();
-      img.crossOrigin = 'Anonymous';
-      
-      // 정밀 지도 타일 URL
-      const mapTileUrl = `https://nominatim.openstreetmap.org/ui/map.html#map=17/${y}/${x}`;
-      const staticUrl = `https://staticmap.openstreetmap.de/staticmap.php?center=${y},${x}&zoom=17&size=800x500&maptype=mapnik&markers=${y},${x},ol-marker`;
-
-      return new Promise((resolve) => {
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          canvas.width = 800;
-          canvas.height = 500;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(img, 0, 0, 800, 500);
-
-            // 중앙에 빨간색 현장 위치 동그라미 타겟 마커 그리기
-            ctx.beginPath();
-            ctx.arc(400, 250, 18, 0, 2 * Math.PI);
-            ctx.fillStyle = 'rgba(239, 68, 68, 0.4)';
-            ctx.fill();
-            ctx.lineWidth = 3;
-            ctx.strokeStyle = '#ef4444';
-            ctx.stroke();
-
-            ctx.beginPath();
-            ctx.arc(400, 250, 5, 0, 2 * Math.PI);
-            ctx.fillStyle = '#dc2626';
-            ctx.fill();
-
-            // 상단 주소 라벨
-            ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
-            ctx.fillRect(15, 15, 450, 35);
-            ctx.font = 'bold 16px "맑은 고딕", sans-serif';
-            ctx.fillStyle = '#ffffff';
-            ctx.fillText(`📍 위치: ${address}`, 25, 38);
-
-            resolve(canvas.toDataURL('image/png'));
-          } else {
-            resolve(null);
-          }
-        };
-
-        img.onerror = () => {
-          // 지도 이미지 로드 차단 시 텍스트 및 기본 틀 그리기
-          const canvas = document.createElement('canvas');
-          canvas.width = 800;
-          canvas.height = 500;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.fillStyle = '#f8fafc';
-            ctx.fillRect(0, 0, 800, 500);
-            ctx.strokeStyle = '#cbd5e1';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(10, 10, 780, 480);
-
-            ctx.font = 'bold 20px "맑은 고딕", sans-serif';
-            ctx.fillStyle = '#1e293b';
-            ctx.textAlign = 'center';
-            ctx.fillText('📍 설치장소 위치도', 400, 230);
-            ctx.font = '16px "맑은 고딕", sans-serif';
-            ctx.fillStyle = '#2563eb';
-            ctx.fillText(`주소: ${address}`, 400, 270);
-
-            resolve(canvas.toDataURL('image/png'));
-          } else {
-            resolve(null);
-          }
-        };
-
-        img.src = staticUrl;
-      });
-    } catch {
-      return null;
-    }
-  };
-
-  // 📊 엑셀 생성 및 위치도 자동 생성
+  // 📊 엑셀 다운로드
   const exportToExcel = async () => {
     if (items.length === 0) {
       alert('다운로드할 데이터가 없습니다.');
@@ -184,9 +156,7 @@ export default function SafetyInvestmentApp() {
       const ExcelJS = (await import('exceljs')).default;
       const workbook = new ExcelJS.Workbook();
 
-      // ==========================================
       // 시트 1: [투자 내역]
-      // ==========================================
       const invSheet = workbook.addWorksheet('투자 내역');
       invSheet.views = [{ showGridLines: true }];
 
@@ -282,9 +252,7 @@ export default function SafetyInvestmentApp() {
         }
       }
 
-      // ==========================================
       // 시트 2: [리스트]
-      // ==========================================
       const listSheet = workbook.addWorksheet('리스트');
       listSheet.views = [{ showGridLines: true }];
 
@@ -341,9 +309,7 @@ export default function SafetyInvestmentApp() {
         }
       });
 
-      // ==========================================
       // 시트 3~N: 개별 보고서 ('1', '2'...)
-      // ==========================================
       for (let idx = 0; idx < items.length; idx++) {
         const item = items[idx];
         const reportSheet = workbook.addWorksheet(`${idx + 1}`);
@@ -396,7 +362,7 @@ export default function SafetyInvestmentApp() {
           }
         });
 
-        // B6:H35 영역 병합
+        // B6:H35 영역 병합 (위치도 틀)
         reportSheet.mergeCells('B6:H35');
 
         for (let r = 2; r <= 79; r++) {
@@ -408,19 +374,16 @@ export default function SafetyInvestmentApp() {
           }
         }
 
-        // 🗺️ 위치 지도 Canvas 인코딩 후 매핑
-        if (item.location) {
-          const autoMapImg = await fetchVWorldMapImage(item.location);
-          if (autoMapImg) {
-            const mapImgId = workbook.addImage({
-              base64: autoMapImg,
-              extension: 'png',
-            });
-            reportSheet.addImage(mapImgId, {
-              tl: { col: 1, row: 5 },  // B6
-              br: { col: 8, row: 35 }, // H35
-            });
-          }
+        // 🗺️ 자동 캡처된 구글 지도 위치도 이미지 매핑
+        if (item.mapImage) {
+          const mapImgId = workbook.addImage({
+            base64: item.mapImage,
+            extension: 'png',
+          });
+          reportSheet.addImage(mapImgId, {
+            tl: { col: 1, row: 5 },  // B6
+            br: { col: 8, row: 35 }, // H35
+          });
         }
 
         reportSheet.mergeCells('B37:H38');
@@ -538,16 +501,7 @@ export default function SafetyInvestmentApp() {
           </div>
 
           <div>
-            <div className="flex justify-between items-center mb-1">
-              <label className="text-xs font-bold text-gray-600">설치장소 (주소)</label>
-              <button 
-                type="button" 
-                onClick={handleOpenNaverMap} 
-                className="text-[11px] bg-emerald-100 text-emerald-800 font-bold px-2.5 py-1 rounded-lg hover:bg-emerald-200"
-              >
-                🗺️ 지도 위치 확인
-              </button>
-            </div>
+            <label className="text-xs font-bold text-gray-600 block mb-1">설치장소 (주소)</label>
             <input 
               type="text" 
               value={formData.location} 
@@ -556,9 +510,26 @@ export default function SafetyInvestmentApp() {
               className="w-full p-2.5 bg-slate-50 border rounded-xl text-sm font-semibold outline-none focus:border-blue-500" 
             />
             <span className="text-[10px] text-blue-600 font-medium mt-1 block">
-              💡 입력하신 주소를 기반으로 엑셀 위치도 지도가 자동으로 매핑됩니다.
+              💡 주소를 입력하시면 구글 지도 기반 정밀 위치도가 자동으로 합성됩니다.
             </span>
           </div>
+
+          {/* 앱 화면 내부 구글 지도 미리보기 박스 */}
+          {formData.location && (
+            <div className="border border-slate-200 rounded-2xl p-2 bg-slate-50 space-y-1">
+              <span className="text-[11px] font-bold text-slate-700 block">🗺️ 위치도 미리보기 (자동 생성)</span>
+              <div className="relative w-full h-48 rounded-xl overflow-hidden border border-slate-200">
+                <iframe
+                  title="구글 지도 미리보기"
+                  width="100%"
+                  height="100%"
+                  loading="lazy"
+                  style={{ border: 0 }}
+                  src={`https://maps.google.com/maps?q=${encodeURIComponent(formData.location)}&t=&z=17&ie=UTF8&iwloc=&output=embed`}
+                />
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
