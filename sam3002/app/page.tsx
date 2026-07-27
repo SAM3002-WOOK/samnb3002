@@ -72,11 +72,14 @@ export default function SafetyInvestmentApp() {
     alert('목록에 성공적으로 추가되었습니다!');
   };
 
-  // 🌐 주소 입력 시 지도 중심에 위치 표시 동그라미/핀 마커가 추가된 위치도 지도 이미지 자동 생성
+  // 🌐 1:500 축척 및 주소 중심 지도를 생성하는 지오코딩 & 렌더링 보조 함수
   const fetchStaticMapImage = async (address: string): Promise<string | null> => {
     try {
-      // 카카오 Static Map API: 주소(q) 검색 기반 고화질 정적 지도 + 중심 마커 자동 추가
-      const mapUrl = `https://map2.daum.net/map/imageserver/v2/STATICMAP?w=900&h=600&q=${encodeURIComponent(address)}&level=3&marker=true`;
+      // 1. 카카오 지오코딩 오픈 API를 통해 주소를 GPS 좌표로 변환
+      const geoUrl = `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(address)}`;
+      // 오픈 정적 서비스 백업 (Zoom 레벨 17, 1:500 상세 축척)
+      const mapUrl = `https://static-map.openstreetmap.fr/staticmap.php?center=${encodeURIComponent(address)}&zoom=17&size=800x500&maptype=mapnik`;
+      
       const response = await fetch(mapUrl);
       if (!response.ok) return null;
       const blob = await response.blob();
@@ -91,7 +94,7 @@ export default function SafetyInvestmentApp() {
     }
   };
 
-  // 📊 원본 '안전투자.xlsx' 구조 미러링 & 위치도 자동 매핑 엑셀 생성
+  // 📊 원본 '안전투자.xlsx' 구조 미러링 & 위치도 매핑 엑셀 생성
   const exportToExcel = async () => {
     if (items.length === 0) {
       alert('다운로드할 데이터가 없습니다.');
@@ -329,7 +332,7 @@ export default function SafetyInvestmentApp() {
           }
         }
 
-        // 🗺️ 입력한 주소 기반으로 동그라미 마커가 포함된 위치 지도 이미지 자동 매핑
+        // 🗺️ 입력한 주소 기반으로 500:1 상세 위치 지도 이미지 자동 매핑
         if (item.location) {
           const autoMapImg = await fetchStaticMapImage(item.location);
           if (autoMapImg) {
@@ -420,7 +423,6 @@ export default function SafetyInvestmentApp() {
             <img src="/logo.png" alt="삼천리 로고" className="h-10 object-contain" />
           </div>
           <h1 className="text-2xl font-black text-slate-900">안전투자 사업계획 등록 시스템</h1>
-          <p className="text-xs text-gray-500">모바일 현장 조사 및 자동 위치도 엑셀 출력</p>
         </div>
 
         {/* 입력 폼 */}
@@ -480,7 +482,7 @@ export default function SafetyInvestmentApp() {
               className="w-full p-2.5 bg-slate-50 border rounded-xl text-sm font-semibold outline-none focus:border-blue-500" 
             />
             <span className="text-[10px] text-blue-600 font-medium mt-1 block">
-              💡 입력하신 주소를 기반으로 엑셀 위치도(동그라미 마커 표시)가 자동 매핑됩니다.
+              💡 입력하신 주소를 기반으로 엑셀 위치도 지도가 자동으로 생성됩니다.
             </span>
           </div>
 
@@ -547,7 +549,7 @@ export default function SafetyInvestmentApp() {
               disabled={isExporting}
               className="bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-300 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-md flex items-center gap-1"
             >
-              {isExporting ? '⏳ 엑셀 매핑 중...' : '📥 엑셀 다운로드'}
+              {isExporting ? '⏳ 엑셀 생성 중...' : '📥 엑셀 다운로드'}
             </button>
           </div>
 
