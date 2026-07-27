@@ -1,8 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import ExcelJS from 'exceljs';
-import { saveAs } from 'file-saver';
 
 export default function SafetyInvestmentApp() {
   const [formData, setFormData] = useState({
@@ -86,65 +84,73 @@ export default function SafetyInvestmentApp() {
     alert('목록에 성공적으로 추가되었습니다!');
   };
 
-  // 📊 안전투자 양식 엑셀(사진 및 시트 생성) 다운로드
+  // 📊 안전투자 양식 엑셀(사진 및 시트 생성) 동적 다운로드
   const exportToExcel = async () => {
     if (items.length === 0) {
       alert('다운로드할 데이터가 없습니다.');
       return;
     }
 
-    const workbook = new ExcelJS.Workbook();
+    try {
+      // 빌드 오류 방지를 위한 동적 임포트
+      const ExcelJS = (await import('exceljs')).default;
+      const { saveAs } = await import('file-saver');
 
-    // 1. [리스트] 시트 생성
-    const listSheet = workbook.addWorksheet('리스트');
-    listSheet.addRow(['2026년 안전투자 밸브 교체 사업계획 리스트']);
-    listSheet.addRow([]);
-    listSheet.addRow(['구분', '시설번호', '시설명', '시설위치', '등록일자', '작업명', '사유', '작성자', '비고']);
+      const workbook = new ExcelJS.Workbook();
 
-    items.forEach((item, idx) => {
-      listSheet.addRow([
-        idx + 1,
-        item.facilityNo,
-        item.facilityName,
-        item.location,
-        item.date,
-        item.workName,
-        item.reason,
-        item.writer,
-        item.remark,
-      ]);
-    });
+      // 1. [리스트] 시트 생성
+      const listSheet = workbook.addWorksheet('리스트');
+      listSheet.addRow(['2026년 안전투자 밸브 교체 사업계획 리스트']);
+      listSheet.addRow([]);
+      listSheet.addRow(['구분', '시설번호', '시설명', '시설위치', '등록일자', '작업명', '사유', '작성자', '비고']);
 
-    // 2. 각 항목별 개별 사진 보고서 시트 생성 (시트명: 1, 2, 3...)
-    items.forEach((item, idx) => {
-      const reportSheet = workbook.addWorksheet(`${idx + 1}`);
+      items.forEach((item, idx) => {
+        listSheet.addRow([
+          idx + 1,
+          item.facilityNo,
+          item.facilityName,
+          item.location,
+          item.date,
+          item.workName,
+          item.reason,
+          item.writer,
+          item.remark,
+        ]);
+      });
 
-      reportSheet.addRow(['위 치 도 및 사 진']);
-      reportSheet.addRow([]);
-      reportSheet.addRow(['시 설 번 호', item.facilityNo, '', '설 치 장 소', item.location]);
-      reportSheet.addRow(['작 업 명', item.workName, '', '사 유', item.reason]);
-      reportSheet.addRow([]);
+      // 2. 각 항목별 개별 사진 보고서 시트 생성 (시트명: 1, 2, 3...)
+      items.forEach((item, idx) => {
+        const reportSheet = workbook.addWorksheet(`${idx + 1}`);
 
-      // 이미지 추가 보조 함수
-      const addPhotoToSheet = (base64Img: string | null, startRow: number) => {
-        if (!base64Img) return;
-        const imageId = workbook.addImage({
-          base64: base64Img,
-          extension: 'png',
-        });
-        reportSheet.addImage(imageId, {
-          tl: { col: 1, row: startRow },
-          ext: { width: 450, height: 280 },
-        });
-      };
+        reportSheet.addRow(['위 치 도 및 사 진']);
+        reportSheet.addRow([]);
+        reportSheet.addRow(['시 설 번 호', item.facilityNo, '', '설 치 장 소', item.location]);
+        reportSheet.addRow(['작 업 명', item.workName, '', '사 유', item.reason]);
+        reportSheet.addRow([]);
 
-      if (item.mapImage) addPhotoToSheet(item.mapImage, 5);
-      if (item.fullImage) addPhotoToSheet(item.fullImage, 21);
-      if (item.detailImage) addPhotoToSheet(item.detailImage, 37);
-    });
+        // 이미지 추가 보조 함수
+        const addPhotoToSheet = (base64Img: string | null, startRow: number) => {
+          if (!base64Img) return;
+          const imageId = workbook.addImage({
+            base64: base64Img,
+            extension: 'png',
+          });
+          reportSheet.addImage(imageId, {
+            tl: { col: 1, row: startRow },
+            ext: { width: 450, height: 280 },
+          });
+        };
 
-    const buffer = await workbook.xlsx.writeBuffer();
-    saveAs(new Blob([buffer]), `안전투자_사업계획_${new Date().toISOString().split('T')[0]}.xlsx`);
+        if (item.mapImage) addPhotoToSheet(item.mapImage, 5);
+        if (item.fullImage) addPhotoToSheet(item.fullImage, 21);
+        if (item.detailImage) addPhotoToSheet(item.detailImage, 37);
+      });
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      saveAs(new Blob([buffer]), `안전투자_사업계획_${new Date().toISOString().split('T')[0]}.xlsx`);
+    } catch {
+      alert('엑셀 파일 생성 중 오류가 발생했습니다.');
+    }
   };
 
   return (
