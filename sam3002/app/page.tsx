@@ -1,7 +1,7 @@
 // @ts-nocheck
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 
 export default function SafetyInvestmentApp() {
   const [formData, setFormData] = useState({
@@ -14,16 +14,28 @@ export default function SafetyInvestmentApp() {
     remark: '',
   });
 
+  const [zoomLevel, setZoomLevel] = useState(17);
+  const [markerPos, setMarkerPos] = useState({ x: 50, y: 50 }); // 마커 퍼센트 위치
   const [fullImage, setFullImage] = useState<string | null>(null);
   const [detailImage, setDetailImage] = useState<string | null>(null);
   const [items, setItems] = useState<any[]>([]);
   const [isExporting, setIsExporting] = useState(false);
 
-  // 🔴 마커 위치 (클릭 시 마커 이동 비율: x, y)
-  const [markerPos, setMarkerPos] = useState<{ x: number; y: number }>({ x: 400, y: 250 });
-  const mapCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // 사진 업로드
+  // 🔍 지도 확대 / 축소
+  const handleZoomIn = () => setZoomLevel((prev) => Math.min(prev + 1, 20));
+  const handleZoomOut = () => setZoomLevel((prev) => Math.max(prev - 1, 12));
+
+  // 🔴 지도 터치/클릭 시 동그라미 마커 이동
+  const handleMapClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const xPercent = ((e.clientX - rect.left) / rect.width) * 100;
+    const yPercent = ((e.clientY - rect.top) / rect.height) * 100;
+    setMarkerPos({ x: xPercent, y: yPercent });
+  };
+
+  // 📸 현장 사진 첨부
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string | null) => void) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -35,90 +47,37 @@ export default function SafetyInvestmentApp() {
     }
   };
 
-  // 🎨 Canvas 지도 + 🔴 빨간 동그라미 사용자 위치 마커 실시간 그리기
-  const drawMapCanvas = (address: string, posX: number, posY: number): string => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 800;
-    canvas.height = 500;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return '';
-
-    // 지도 타일 스타일 배경 그리기 (CORS 무관한 고화질 벡터 패턴)
-    ctx.fillStyle = '#e8ecef';
-    ctx.fillRect(0, 0, 800, 500);
-
-    // 격자 도로망 느끔 패턴
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 14;
-    
-    // 주요 도로
-    ctx.beginPath(); ctx.moveTo(0, 180); ctx.lineTo(800, 220); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, 320); ctx.lineTo(800, 350); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(250, 0); ctx.lineTo(300, 500); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(600, 0); ctx.lineTo(550, 500); ctx.stroke();
-
-    ctx.strokeStyle = '#fbf8e3';
-    ctx.lineWidth = 10;
-    ctx.beginPath(); ctx.moveTo(0, 180); ctx.lineTo(800, 220); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(250, 0); ctx.lineTo(300, 500); ctx.stroke();
-
-    // 단지 구역
-    ctx.fillStyle = '#dbeade';
-    ctx.fillRect(40, 30, 180, 120);
-    ctx.fillRect(320, 40, 240, 140);
-    ctx.fillRect(60, 230, 170, 200);
-    ctx.fillRect(340, 240, 180, 210);
-
-    // 🔴 사용자가 직접 지정한 [빨간 동그라미 마커]
-    ctx.beginPath();
-    ctx.arc(posX, posY, 26, 0, 2 * Math.PI);
-    ctx.fillStyle = 'rgba(239, 68, 68, 0.35)';
-    ctx.fill();
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = '#ef4444';
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(posX, posY, 7, 0, 2 * Math.PI);
-    ctx.fillStyle = '#dc2626';
-    ctx.fill();
-
-    // 주소 라벨
-    if (address) {
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-      ctx.fillRect(15, 15, 450, 36);
-      ctx.font = 'bold 15px "맑은 고딕", sans-serif';
-      ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'left';
-      ctx.fillText(`📍 위치: ${address}`, 25, 39);
+  // 📸 지도 박스 화면 영역을 그대로 캡처하는 함수 (HTML2Canvas)
+  const captureMapElement = async (): Promise<string | null> => {
+    if (!mapContainerRef.current) return null;
+    try {
+      const html2canvas = (await import('html2canvas')).default;
+      const canvas = await html2canvas(mapContainerRef.current, {
+        useCORS: true,
+        allowTaint: true,
+        scale: 2, // 고화질 캡처
+      });
+      return canvas.toDataURL('image/png');
+    } catch {
+      return null;
     }
-
-    return canvas.toDataURL('image/png');
-  };
-
-  // 지도 클릭 시 마커 이동
-  const handleMapClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const clickX = ((e.clientX - rect.left) / rect.width) * 800;
-    const clickY = ((e.clientY - rect.top) / rect.height) * 500;
-    setMarkerPos({ x: clickX, y: clickY });
   };
 
   // ➕ 목록 추가
-  const handleAddToList = () => {
+  const handleAddToList = async () => {
     if (!formData.facilityNo || !formData.facilityName || !formData.location) {
       alert('시설번호, 시설명, 설치장소를 입력해주세요.');
       return;
     }
 
-    // 마커 위치가 포함된 완성형 위치도 이미지 생성
-    const mapImg = drawMapCanvas(formData.location, markerPos.x, markerPos.y);
+    // 눈에 보이는 화면 지도 상자 캡처
+    const capturedMap = await captureMapElement();
 
     const newItem = {
       id: items.length + 1,
       ...formData,
       date: new Date().toISOString().split('T')[0],
-      mapImage: mapImg,
+      mapImage: capturedMap,
       fullImage,
       detailImage,
     };
@@ -139,7 +98,7 @@ export default function SafetyInvestmentApp() {
     alert('목록에 성공적으로 추가되었습니다!');
   };
 
-  // 📊 엑셀 다운로드 (B6:H35 지도 자동 매핑)
+  // 📊 엑셀 파일 다운로드
   const exportToExcel = async () => {
     if (items.length === 0) {
       alert('다운로드할 데이터가 없습니다.');
@@ -370,7 +329,7 @@ export default function SafetyInvestmentApp() {
           }
         }
 
-        // 🌟 100% 매핑 보장되는 위치 지도 이미지를 B6:H35 영역에 삽입
+        // 🌟 캡처된 정밀 지도 및 빨간 동그라미 표기를 B6:H35 영역에 삽입
         if (item.mapImage) {
           const mapImgId = workbook.addImage({
             base64: item.mapImage,
@@ -506,17 +465,37 @@ export default function SafetyInvestmentApp() {
               className="w-full p-2.5 bg-slate-50 border rounded-xl text-sm font-semibold outline-none focus:border-blue-500" 
             />
             <span className="text-[10px] text-blue-600 font-medium mt-1 block">
-              💡 지도 박스를 클릭/터치하시면 🔴 빨간 동그라미 위치 마커가 원하는 지점으로 이동합니다.
+              💡 지도 박스를 터치하시면 🔴 빨간 동그라미 위치 마커가 이동합니다.
             </span>
           </div>
 
-          {/* 🔴 터치하여 빨간 동그라미 위치를 직접 지정하는 지도 박스 */}
+          {/* 🗺️ 확대/축소 및 직접 터치 위치지정 지도 상자 */}
           <div className="border border-slate-200 rounded-2xl p-3 bg-slate-50 space-y-2">
-            <span className="text-xs font-bold text-slate-800 block">🗺️ 지도를 터치하여 🔴 빨간 동그라미 위치 지정</span>
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-bold text-slate-800">🗺️ 터치로 🔴 위치 지정 (확대/축소 지원)</span>
+              <div className="flex gap-1.5">
+                <button 
+                  type="button" 
+                  onClick={handleZoomIn} 
+                  className="bg-white border text-xs px-2.5 py-1 rounded-lg font-bold hover:bg-slate-100 shadow-sm"
+                >
+                  🔍 [+] 확대
+                </button>
+                <button 
+                  type="button" 
+                  onClick={handleZoomOut} 
+                  className="bg-white border text-xs px-2.5 py-1 rounded-lg font-bold hover:bg-slate-100 shadow-sm"
+                >
+                  🔎 [-] 축소
+                </button>
+              </div>
+            </div>
 
+            {/* 캡처 대상 영역 */}
             <div 
+              ref={mapContainerRef}
               onClick={handleMapClick}
-              className="relative w-full h-56 rounded-xl overflow-hidden border border-slate-300 cursor-pointer shadow-inner bg-slate-200"
+              className="relative w-full h-60 rounded-xl overflow-hidden border border-slate-300 cursor-pointer shadow-inner bg-slate-200"
             >
               <iframe
                 title="지도 미리보기"
@@ -524,15 +503,15 @@ export default function SafetyInvestmentApp() {
                 height="100%"
                 loading="lazy"
                 style={{ border: 0, pointerEvents: 'none' }}
-                src={`https://maps.google.com/maps?q=${encodeURIComponent(formData.location || '경기도 안성시 서동대로 3948')}&t=&z=17&ie=UTF8&iwloc=&output=embed`}
+                src={`https://maps.google.com/maps?q=${encodeURIComponent(formData.location || '경기도 안성시 서동대로 3948')}&t=&z=${zoomLevel}&ie=UTF8&iwloc=&output=embed`}
               />
 
-              {/* 터치한 위치에 표시되는 🔴 빨간 동그라미 마커 오버레이 */}
+              {/* 🔴 빨간 동그라미 위치 마커 */}
               <div 
-                className="absolute transform -translate-x-1/2 -translate-y-1/2 pointer-events-none transition-all duration-150"
-                style={{ left: `${(markerPos.x / 800) * 100}%`, top: `${(markerPos.y / 500) * 100}%` }}
+                className="absolute transform -translate-x-1/2 -translate-y-1/2 pointer-events-none transition-all duration-150 z-10"
+                style={{ left: `${markerPos.x}%`, top: `${markerPos.y}%` }}
               >
-                <div className="w-10 h-10 rounded-full bg-red-500/30 border-2 border-red-600 flex items-center justify-center animate-pulse">
+                <div className="w-10 h-10 rounded-full bg-red-500/35 border-2 border-red-600 flex items-center justify-center animate-pulse shadow-lg">
                   <div className="w-3 h-3 rounded-full bg-red-600 shadow-md" />
                 </div>
               </div>
