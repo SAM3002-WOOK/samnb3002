@@ -550,7 +550,7 @@ export default function SafetyInvestmentApp() {
                 </div>
               ))}
             </div>
-          )}
+          ))}
         </div>
 
       </div>
