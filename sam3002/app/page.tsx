@@ -15,30 +15,10 @@ export default function SafetyInvestmentApp() {
 
   const [fullImage, setFullImage] = useState<string | null>(null);
   const [detailImage, setDetailImage] = useState<string | null>(null);
-
   const [items, setItems] = useState<any[]>([]);
+  const [isExporting, setIsExporting] = useState(false);
 
-  // 📍 GPS 현재 위치 주소/좌표 추출
-  const handleGetLocation = () => {
-    if (!navigator.geolocation) {
-      alert('GPS를 지원하지 않는 브라우저입니다.');
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        // 깔끔한 좌표 형태로 저장
-        setFormData(prev => ({ 
-          ...prev, 
-          location: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}` 
-        }));
-        alert('GPS 좌표 추출 완료!');
-      },
-      () => alert('위치 정보를 가져올 수 없습니다. GPS 권한을 허용해주세요.')
-    );
-  };
-
-  // 🗺️ 네이버 지도 검색 (주소/좌표 모두 호환)
+  // 🗺️ 네이버 지도검색 열기
   const handleOpenNaverMap = () => {
     if (!formData.location && !formData.facilityName) {
       alert('설치장소(주소) 또는 시설명을 먼저 입력해주세요.');
@@ -48,7 +28,7 @@ export default function SafetyInvestmentApp() {
     window.open(`https://map.naver.com/v5/search/${encodeURIComponent(searchQuery)}`, '_blank');
   };
 
-  // 📸 이미지 파일 Base64 변환
+  // 📸 사진 선택
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string | null) => void) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -60,10 +40,10 @@ export default function SafetyInvestmentApp() {
     }
   };
 
-  // ➕ 리스트 추가
+  // ➕ 목록 추가
   const handleAddToList = () => {
-    if (!formData.facilityNo || !formData.facilityName) {
-      alert('시설번호와 시설명을 입력해주세요.');
+    if (!formData.facilityNo || !formData.facilityName || !formData.location) {
+      alert('시설번호, 시설명, 설치장소를 입력해주세요.');
       return;
     }
 
@@ -77,7 +57,6 @@ export default function SafetyInvestmentApp() {
 
     setItems([...items, newItem]);
 
-    // 입력 폼 초기화
     setFormData({
       facilityNo: '',
       facilityName: '',
@@ -92,12 +71,12 @@ export default function SafetyInvestmentApp() {
     alert('목록에 성공적으로 추가되었습니다!');
   };
 
-  // 🌐 카카오 static map을 통해 주소/좌표로 지도 이미지 자동 생성 보조 함수
-  const fetchStaticMapImage = async (locationStr: string): Promise<string | null> => {
+  // 🌐 주소 기반 정적 지도 이미지 생성 보조 함수
+  const fetchStaticMapImage = async (address: string): Promise<string | null> => {
     try {
-      // 카카오 정적 지도 API 오픈 URL 활용 (줌 레벨 3)
-      const mapUrl = `https://map2.daum.net/map/imageserver/v2/STATICMAP?w=600&h=350&coordX=&coordY=&q=${encodeURIComponent(locationStr)}&level=3`;
+      const mapUrl = `https://map2.daum.net/map/imageserver/v2/STATICMAP?w=800&h=500&coordX=&coordY=&q=${encodeURIComponent(address)}&level=3`;
       const response = await fetch(mapUrl);
+      if (!response.ok) return null;
       const blob = await response.blob();
       
       return new Promise((resolve) => {
@@ -110,27 +89,157 @@ export default function SafetyInvestmentApp() {
     }
   };
 
-  // 📊 엑셀 다운로드 (자동 위치도 + 현장사진 2종)
+  // 📊 원본 '안전투자.xlsx'와 100% 동일한 구조 미러링 엑셀 생성
   const exportToExcel = async () => {
     if (items.length === 0) {
       alert('다운로드할 데이터가 없습니다.');
       return;
     }
 
+    setIsExporting(true);
+
     try {
       const ExcelJS = (await import('exceljs')).default;
-      const { saveAs } = await import('file-saver');
-
       const workbook = new ExcelJS.Workbook();
 
-      // 1. [리스트] 시트
+      // ==========================================
+      // 시트 1: [투자 내역] (기본 참고 자료 복제)
+      // ==========================================
+      const invSheet = workbook.addWorksheet('투자 내역');
+      invSheet.views = [{ showGridLines: true }];
+
+      invSheet.getColumn('A').width = 2.13;
+      invSheet.getColumn('B').width = 13.0;
+      invSheet.getColumn('C').width = 12.5;
+      invSheet.getColumn('D').width = 27.13;
+      invSheet.getColumn('E').width = 38.13;
+      invSheet.getColumn('F').width = 40.88;
+
+      invSheet.getCell('B2').value = '■ 당사 시설물별 기본 투자 내역 참고 자료';
+      invSheet.getCell('B2').font = { name: '맑은 고딕', size: 11 };
+
+      const invHeaders = ['구분', '시설물', '작업명', '세부 내역', '비고'];
+      invHeaders.forEach((h, i) => {
+        const colLetter = String.fromCharCode(66 + i); // B, C, D, E, F
+        const cell = invSheet.getCell(`${colLetter}4`);
+        cell.value = h;
+        cell.font = { name: '맑은 고딕', size: 11, bold: true };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      });
+      invSheet.getRow(4).height = 22.5;
+
+      const invData = [
+        [1, '정압기', '도색', '전체 도색', ''],
+        [2, '', '', '흡 · 배기 방출관 도색', ''],
+        [3, '', '', '출입문 도색', ''],
+        [4, '', '', '휠터 1개소 도색', ''],
+        [5, '', '', '배관 일부 도색 (50%)', ''],
+        [6, '', '', '배관 지지대(서포트) 내화도색', ''],
+        [7, '', '', '내부 벽면 도장(바다제외 5면)', ''],
+        [8, '', '', '그 외 견적 시행', ''],
+        [9, '', '방수', '출입구 2개소 방수', ''],
+        [10, '', '', '슬리브 2개소 방수', ''],
+        [11, '', '', '그 외 견적 시행', ''],
+        [12, '', '전기통신 부품 교체', 'RTU외함 교체', ''],
+        [13, '', '', '방폭등 교체', '변경 위치 표기'],
+        [14, '', '', '방폭등 위치 변경 (견적시행)', ''],
+        [15, '', '', 'MOV, SSV등 전선관 보수 1·2개소', ''],
+        [16, '', '사다리 교체', '정압기실 1·2개소', ''],
+        [17, '', '', '미끄럼방지 설치', ''],
+        [18, '', '기 타', '그 외 특수 공사', ''],
+        [19, '밸브', '인상/인하', '시설물 인상, 인하', ''],
+        [20, '', '', '철괘 교체', ''],
+        [21, '', '', '맨홀 주변 파손', '면적이 넓은 경우 폭 길이 측정 요망'],
+        [22, '', '환경정리', '매몰형 이물질 제거', ''],
+        [23, '', '', '박스형 이물질 제거', ''],
+        [24, '', '철거/교체', '점검곤란 밸브 ', '사유 명확'],
+        [25, '', '', '과심도 밸브', '심도 측정 사진 필요'],
+        [26, '', '도색', '밸브실 도색', ''],
+        [27, '', '', '인입밸브 100A이하 도색', ''],
+        [28, '', '', '입상밸브 및 박스포함', ''],
+        [29, '', '', '그 외 견적 시행', ''],
+        [30, '', '방수', '출입구 1개소 방수', ''],
+        [31, '', '', '슬리브 2개소 방수', ''],
+        [32, '', '사다리 교체', '사다리 연장', '필요 길이 기입 요망'],
+        [33, '', '', '사다리 교체', ''],
+        [34, '전기방식', '철거', '부분 철거', ''],
+        [35, '', '인상/인하', '시설물 인상, 인하', ''],
+        [36, '', '', '철괘 교체', ''],
+        [37, '', '', '맨홀 주변 파손', '면적이 넓은 경우 폭 길이 측정 요망'],
+        [38, '', '신설', '신규 설치', ''],
+        [39, '배관', '라인마크 설치', '검지공형 라인마크 설치', '설치 위치 명확한 사진 및 위치 필요'],
+        [40, '', '', '일반 라인마크 설치', ''],
+        [41, '', '철거', '미사용 인입 본관/공급관/인입관', '영업팀 문의 후 투자 수립 요망'],
+        [42, '사용시설', '입상관 보호대', '50A 이하', ''],
+        [43, '', '', '100A', ''],
+      ];
+
+      invData.forEach((rVals, idx) => {
+        const rNum = idx + 5;
+        const row = invSheet.getRow(rNum);
+        row.values = ['', rVals[0], rVals[1], rVals[2], rVals[3], rVals[4]];
+        row.font = { name: '맑은 고딕', size: 11 };
+        row.alignment = { vertical: 'middle', horizontal: 'center' };
+        row.height = 17.25;
+      });
+
+      // 투자내역 셀 병합 적용
+      const invMerges = [
+        'C5:C22', 'D5:D12', 'D13:D15', 'D16:D19', 'D20:D21',
+        'C23:C37', 'D23:D25', 'D26:D27', 'D28:D29', 'D30:D33', 'D34:D35', 'D36:D37', 'F36:F37',
+        'C38:C42', 'D39:D41',
+        'C43:C45', 'D43:D44', 'F43:F44',
+        'C46:C47', 'D46:D47'
+      ];
+      invMerges.forEach(m => invSheet.mergeCells(m));
+
+      // 테두리 설정
+      for (let r = 4; r <= 47; r++) {
+        for (let c = 2; c <= 6; c++) {
+          invSheet.getCell(r, c).border = {
+            top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' }
+          };
+        }
+      }
+
+      // ==========================================
+      // 시트 2: [리스트] (목록)
+      // ==========================================
       const listSheet = workbook.addWorksheet('리스트');
-      listSheet.addRow(['2026년 안전투자 밸브 교체 사업계획 리스트']);
-      listSheet.addRow([]);
-      listSheet.addRow(['구분', '시설번호', '시설명', '설치장소', '등록일자', '작업명', '사유', '작성자', '비고']);
+      listSheet.views = [{ showGridLines: true }];
+
+      listSheet.getColumn('A').width = 2.75;
+      listSheet.getColumn('B').width = 10.38;
+      listSheet.getColumn('C').width = 15.25;
+      listSheet.getColumn('D').width = 28.25;
+      listSheet.getColumn('E').width = 36.88;
+      listSheet.getColumn('F').width = 17.38;
+      listSheet.getColumn('G').width = 22.38;
+      listSheet.getColumn('H').width = 24.88;
+      listSheet.getColumn('I').width = 13.0;
+      listSheet.getColumn('J').width = 29.25;
+
+      listSheet.getCell('B2').value = '2026년 안전투자 밸브 교체 사업계획 리스트';
+      listSheet.getCell('B2').font = { name: '맑은 고딕', size: 14, bold: true };
+      listSheet.getCell('B2').alignment = { vertical: 'middle' };
+      listSheet.getRow(2).height = 20.25;
+
+      const listHeaders = ['구분', '시설번호', '시설명', '시설위치', '등록일자', '작업명', '사유', '작성자', '비고'];
+      listHeaders.forEach((h, i) => {
+        const colLetter = String.fromCharCode(66 + i); // B~J
+        const cell = listSheet.getCell(`${colLetter}4`);
+        cell.value = h;
+        cell.font = { name: '맑은 고딕', size: 11 };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+      });
+      listSheet.getRow(4).height = 17.25;
 
       items.forEach((item, idx) => {
-        listSheet.addRow([
+        const rNum = idx + 5;
+        const row = listSheet.getRow(rNum);
+        row.values = [
+          '',
           idx + 1,
           item.facilityNo,
           item.facilityName,
@@ -139,49 +248,171 @@ export default function SafetyInvestmentApp() {
           item.workName,
           item.reason,
           item.writer,
-          item.remark,
-        ]);
+          item.remark || ''
+        ];
+        row.font = { name: '맑은 고딕', size: 11 };
+        row.alignment = { vertical: 'middle', horizontal: 'center' };
+        row.height = 17.25;
+
+        for (let c = 2; c <= 10; c++) {
+          listSheet.getCell(rNum, c).border = {
+            top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' }
+          };
+        }
       });
 
-      // 2. 개별 리포트 시트 생성
+      // ==========================================
+      // 시트 3~N: 개별 보고서 ('1', '2'...)
+      // ==========================================
       for (let idx = 0; idx < items.length; idx++) {
         const item = items[idx];
         const reportSheet = workbook.addWorksheet(`${idx + 1}`);
+        reportSheet.views = [{ showGridLines: true }];
 
-        reportSheet.addRow(['위 치 도 및 사 진']);
-        reportSheet.addRow(['시 설 번 호', item.facilityNo, '', '설 치 장 소', item.location]);
-        reportSheet.addRow(['작 업 명', item.workName, '', '사 유', item.reason]);
-        reportSheet.addRow([]);
+        reportSheet.getColumn('A').width = 1.75;
+        reportSheet.getColumn('B').width = 13.0;
+        reportSheet.getColumn('C').width = 13.0;
+        reportSheet.getColumn('D').width = 21.63;
+        reportSheet.getColumn('E').width = 15.63;
+        reportSheet.getColumn('F').width = 15.75;
+        reportSheet.getColumn('G').width = 13.0;
+        reportSheet.getColumn('H').width = 19.38;
 
-        const addPhotoToSheet = (base64Img: string | null, startRow: number, height: number = 260) => {
-          if (!base64Img) return;
-          const imageId = workbook.addImage({
-            base64: base64Img,
-            extension: 'png',
-          });
-          reportSheet.addImage(imageId, {
-            tl: { col: 1, row: startRow },
-            ext: { width: 520, height: height },
-          });
-        };
+        reportSheet.getRow(1).height = 9.75;
+        reportSheet.getRow(2).height = 20.25;
+        reportSheet.getRow(3).height = 6.75;
+        reportSheet.getRow(4).height = 17.25;
+        reportSheet.getRow(5).height = 17.25;
+        reportSheet.getRow(36).height = 9.75;
+        reportSheet.getRow(37).height = 17.25;
+        reportSheet.getRow(38).height = 17.25;
 
-        // 🗺️ 위치도 지도 이미지 자동 생성 및 삽입
+        // B2:H2 위 치 도 및 사 진
+        reportSheet.mergeCells('B2:H2');
+        const b2 = reportSheet.getCell('B2');
+        b2.value = '위 치 도 및 사 진';
+        b2.font = { name: '맑은 고딕', size: 14, bold: true };
+        b2.alignment = { horizontal: 'center', vertical: 'middle' };
+
+        // 4행
+        reportSheet.mergeCells('B4:C4');
+        reportSheet.getCell('B4').value = '시 설 번 호';
+        reportSheet.getCell('D4').value = item.facilityNo;
+        reportSheet.getCell('E4').value = '설 치 장 소';
+        reportSheet.mergeCells('F4:H4');
+        reportSheet.getCell('F4').value = item.location;
+
+        // 5행
+        reportSheet.mergeCells('B5:C5');
+        reportSheet.getCell('B5').value = '작 업 명';
+        reportSheet.getCell('D5').value = item.workName;
+        reportSheet.getCell('E5').value = '사 유';
+        reportSheet.mergeCells('F5:H5');
+        reportSheet.getCell('F5').value = item.reason;
+
+        [4, 5].forEach((r) => {
+          for (let c = 2; c <= 8; c++) {
+            const cell = reportSheet.getCell(r, c);
+            cell.font = { name: '맑은 고딕', size: 11 };
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+          }
+        });
+
+        // 🗺️ 지도 이미지 B6:H35 (30행 영역)
         if (item.location) {
-          const autoMapImg = await fetchStaticMapImage(item.location);
-          if (autoMapImg) {
-            addPhotoToSheet(autoMapImg, 5, 280);
+          const mapDataUrl = await fetchStaticMapImage(item.location);
+          if (mapDataUrl) {
+            const mapImgId = workbook.addImage({
+              base64: mapDataUrl,
+              extension: 'png',
+            });
+            reportSheet.addImage(mapImgId, {
+              tl: { col: 1, row: 5 },  // B6
+              br: { col: 8, row: 35 }, // H35
+            });
           }
         }
 
-        reportSheet.getCell('B38').value = '현 장 사 진';
-        if (item.fullImage) addPhotoToSheet(item.fullImage, 39, 240);
-        if (item.detailImage) addPhotoToSheet(item.detailImage, 59, 240);
+        // B37:H38 현 장 사 진
+        reportSheet.mergeCells('B37:H38');
+        const b37 = reportSheet.getCell('B37');
+        b37.value = '현 장 사 진';
+        b37.font = { name: '맑은 고딕', size: 14, bold: true };
+        b37.alignment = { horizontal: 'center', vertical: 'middle' };
+
+        // B39:B59 전경사진 레이블
+        reportSheet.mergeCells('B39:B59');
+        const b39 = reportSheet.getCell('B39');
+        b39.value = '전\n\n경\n\n사\n\n진';
+        b39.font = { name: '맑은 고딕', size: 11 };
+        b39.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+
+        // C39:H59 영역 병합
+        reportSheet.mergeCells('C39:H59');
+
+        // B60:B79 상세사진 레이블
+        reportSheet.mergeCells('B60:B79');
+        const b60 = reportSheet.getCell('B60');
+        b60.value = '상\n\n세\n\n사\n\n진';
+        b60.font = { name: '맑은 고딕', size: 11 };
+        b60.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+
+        // C60:H79 영역 병합
+        reportSheet.mergeCells('C60:H79');
+
+        // 테두리 선 전체 적용
+        for (let r = 2; r <= 79; r++) {
+          if ([1, 3, 36].includes(r)) continue;
+          for (let c = 2; c <= 8; c++) {
+            reportSheet.getCell(r, c).border = {
+              top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' }
+            };
+          }
+        }
+
+        // 1. 전경 사진 (C39:H59)
+        if (item.fullImage) {
+          const img1 = workbook.addImage({
+            base64: item.fullImage,
+            extension: 'png',
+          });
+          reportSheet.addImage(img1, {
+            tl: { col: 2, row: 38 }, // C39
+            br: { col: 8, row: 59 }, // H59
+          });
+        }
+
+        // 2. 상세 사진 (C60:H79)
+        if (item.detailImage) {
+          const img2 = workbook.addImage({
+            base64: item.detailImage,
+            extension: 'png',
+          });
+          reportSheet.addImage(img2, {
+            tl: { col: 2, row: 59 }, // C60
+            br: { col: 8, row: 79 }, // H79
+          });
+        }
       }
 
+      // 모바일 블록 방지 Blob 다운로드
       const buffer = await workbook.xlsx.writeBuffer();
-      saveAs(new Blob([buffer]), `안전투자_사업계획_${new Date().toISOString().split('T')[0]}.xlsx`);
-    } catch {
-      alert('엑셀 파일 생성 중 오류가 발생했습니다.');
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `안전투자_사업계획_${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(anchor);
+
+      alert('엑셀 파일이 정상적으로 다운로드되었습니다!');
+    } catch (err) {
+      alert('엑셀 다운로드 중 오류가 발생했습니다.');
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -195,7 +426,7 @@ export default function SafetyInvestmentApp() {
             <img src="/logo.png" alt="삼천리 로고" className="h-10 object-contain" />
           </div>
           <h1 className="text-2xl font-black text-slate-900">안전투자 사업계획 등록 시스템</h1>
-          <p className="text-xs text-gray-500">모바일 현장 조사 및 자동 위치도 엑셀 출력</p>
+          <p className="text-xs text-gray-500">모바일 현장 조사 및 원본 미러링 엑셀 출력</p>
         </div>
 
         {/* 입력 폼 */}
@@ -219,7 +450,7 @@ export default function SafetyInvestmentApp() {
                 type="text" 
                 value={formData.facilityNo} 
                 onChange={e => setFormData({ ...formData, facilityNo: e.target.value })} 
-                placeholder="예: AD" 
+                placeholder="예: AD 또는 VPTX0001-1" 
                 className="w-full p-2.5 bg-slate-50 border rounded-xl text-sm font-semibold outline-none focus:border-blue-500" 
               />
             </div>
@@ -238,32 +469,25 @@ export default function SafetyInvestmentApp() {
 
           <div>
             <div className="flex justify-between items-center mb-1">
-              <label className="text-xs font-bold text-gray-600">설치장소 (주소 또는 좌표)</label>
-              <div className="flex gap-1.5">
-                <button 
-                  type="button" 
-                  onClick={handleOpenNaverMap} 
-                  className="text-[11px] bg-emerald-100 text-emerald-800 font-bold px-2.5 py-1 rounded-lg hover:bg-emerald-200"
-                >
-                  🗺️ 네이버 지도
-                </button>
-                <button 
-                  type="button" 
-                  onClick={handleGetLocation} 
-                  className="text-[11px] bg-sky-100 text-sky-800 font-bold px-2.5 py-1 rounded-lg hover:bg-sky-200"
-                >
-                  📍 GPS 추출
-                </button>
-              </div>
+              <label className="text-xs font-bold text-gray-600">설치장소 (주소)</label>
+              <button 
+                type="button" 
+                onClick={handleOpenNaverMap} 
+                className="text-[11px] bg-emerald-100 text-emerald-800 font-bold px-2.5 py-1 rounded-lg hover:bg-emerald-200"
+              >
+                🗺️ 네이버 지도 확인
+              </button>
             </div>
             <input 
               type="text" 
               value={formData.location} 
               onChange={e => setFormData({ ...formData, location: e.target.value })} 
-              placeholder="예: 공도읍 서동대로 3948 또는 GPS 클릭" 
+              placeholder="예: 공도읍 서동대로 3948 또는 용이동 750-6" 
               className="w-full p-2.5 bg-slate-50 border rounded-xl text-sm font-semibold outline-none focus:border-blue-500" 
             />
-            <span className="text-[10px] text-gray-400 mt-1 block">💡 위치도는 입력하신 주소/좌표 기반으로 엑셀 출력 시 자동 첨부됩니다.</span>
+            <span className="text-[10px] text-blue-600 font-medium mt-1 block">
+              💡 입력하신 주소를 기반으로 엑셀 B6:H35 영역에 지도가 자동 매핑됩니다.
+            </span>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -283,13 +507,13 @@ export default function SafetyInvestmentApp() {
                 type="text" 
                 value={formData.reason} 
                 onChange={e => setFormData({ ...formData, reason: e.target.value })} 
-                placeholder="예: 누환" 
+                placeholder="예: 밸브 손상" 
                 className="w-full p-2.5 bg-slate-50 border rounded-xl text-sm font-semibold outline-none focus:border-blue-500" 
               />
             </div>
           </div>
 
-          {/* 현장 사진 첨부 2종 */}
+          {/* 사진 첨부 2종 */}
           <div className="space-y-3 pt-2 border-t">
             <h3 className="text-xs font-bold text-gray-700">📸 현장 사진 첨부 (2종)</h3>
 
@@ -298,7 +522,7 @@ export default function SafetyInvestmentApp() {
                 <span className="text-xs font-bold block mb-1.5 text-slate-700">1. 전경 사진</span>
                 <input type="file" accept="image/*" onChange={e => handleImageUpload(e, setFullImage)} className="hidden" id="full-upload" />
                 <label htmlFor="full-upload" className="cursor-pointer bg-white border text-xs py-2 rounded-xl font-bold block truncate text-blue-600 shadow-sm">
-                  {fullImage ? '✅ 등록 완료' : '📸 사진 촬영/선택'}
+                  {fullImage ? '✅ 촬영/선택 완료' : '📸 사진 촬영/선택'}
                 </label>
               </div>
 
@@ -306,7 +530,7 @@ export default function SafetyInvestmentApp() {
                 <span className="text-xs font-bold block mb-1.5 text-slate-700">2. 상세 사진</span>
                 <input type="file" accept="image/*" onChange={e => handleImageUpload(e, setDetailImage)} className="hidden" id="detail-upload" />
                 <label htmlFor="detail-upload" className="cursor-pointer bg-white border text-xs py-2 rounded-xl font-bold block truncate text-blue-600 shadow-sm">
-                  {detailImage ? '✅ 등록 완료' : '📸 사진 촬영/선택'}
+                  {detailImage ? '✅ 촬영/선택 완료' : '📸 사진 촬영/선택'}
                 </label>
               </div>
             </div>
@@ -320,15 +544,16 @@ export default function SafetyInvestmentApp() {
           </button>
         </div>
 
-        {/* 사업계획 목록 & 엑셀 저장 */}
+        {/* 등록 목록 & 엑셀 다운로드 */}
         <div className="bg-white p-6 rounded-3xl shadow-md border border-slate-200 space-y-4">
           <div className="flex justify-between items-center border-b pb-2">
             <h2 className="text-base font-bold text-slate-900">📊 등록 목록 ({items.length}건)</h2>
             <button 
               onClick={exportToExcel} 
-              className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-md flex items-center gap-1"
+              disabled={isExporting}
+              className="bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-300 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-md flex items-center gap-1"
             >
-              📥 엑셀 다운로드
+              {isExporting ? '⏳ 엑셀 미러링 생성 중...' : '📥 엑셀 다운로드'}
             </button>
           </div>
 
