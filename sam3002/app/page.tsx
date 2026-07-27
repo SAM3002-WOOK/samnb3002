@@ -22,7 +22,7 @@ export default function SafetyInvestmentApp() {
   // 브이월드 공공 API 인증키
   const VWORLD_API_KEY = 'B3637248-2FCB-38EF-BD88-F35AA5B308A7';
 
-  // 🗺️ 네이버 지도 확인 (주소 검색 열기)
+  // 🗺️ 네이버 지도 확인
   const handleOpenNaverMap = () => {
     if (!formData.location && !formData.facilityName) {
       alert('설치장소(주소) 또는 시설명을 먼저 입력해주세요.');
@@ -75,42 +75,103 @@ export default function SafetyInvestmentApp() {
     alert('목록에 성공적으로 추가되었습니다!');
   };
 
-  // 🌐 국토교통부 브이월드 API를 이용한 주소 지오코딩 및 정밀 500:1 위치도 생성 함수
+  // 🌐 국토교통부 브이월드 좌표 변환 및 정밀 지도 렌더링 함수
   const fetchVWorldMapImage = async (address: string): Promise<string | null> => {
     try {
-      // 1. 브이월드 지오코더 API로 주소를 경도(x), 위도(y) 좌표로 변환
+      // 1. 브이월드 지오코더 API 호출
       const geoUrl = `https://api.vworld.kr/req/address?service=address&request=getcoord&version=2.0&crs=epsg:4326&address=${encodeURIComponent(address)}&refine=true&simple=false&type=ROAD&type=PARCEL&key=${VWORLD_API_KEY}`;
       
-      let x = '127.100';
-      let y = '37.000';
+      let x = 127.0987;
+      let y = 37.0012;
 
       const geoRes = await fetch(geoUrl);
       if (geoRes.ok) {
         const geoData = await geoRes.json();
         if (geoData.response?.status === 'OK' && geoData.response?.result?.point) {
-          x = geoData.response.result.point.x;
-          y = geoData.response.result.point.y;
+          x = parseFloat(geoData.response.result.point.x);
+          y = parseFloat(geoData.response.result.point.y);
         }
       }
 
-      // 2. 브이월드 2D 정적 지도 API 또는 오픈 지도 엔진으로 마커 포함 500:1 상세 위치 지도 생성
-      const mapUrl = `https://static-map.openstreetmap.fr/staticmap.php?center=${y},${x}&zoom=17&size=800x500&maptype=mapnik&markers=${y},${x},red-pushpin`;
+      // 2. 브라우저 Canvas를 활용하여 500:1 축척 지도 및 빨간색 위치 표기 마커 합성
+      const img = new Image();
+      img.crossOrigin = 'Anonymous';
       
-      const response = await fetch(mapUrl);
-      if (!response.ok) return null;
-      const blob = await response.blob();
-      
+      // 정밀 지도 타일 URL
+      const mapTileUrl = `https://nominatim.openstreetmap.org/ui/map.html#map=17/${y}/${x}`;
+      const staticUrl = `https://staticmap.openstreetmap.de/staticmap.php?center=${y},${x}&zoom=17&size=800x500&maptype=mapnik&markers=${y},${x},ol-marker`;
+
       return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.readAsDataURL(blob);
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 800;
+          canvas.height = 500;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, 800, 500);
+
+            // 중앙에 빨간색 현장 위치 동그라미 타겟 마커 그리기
+            ctx.beginPath();
+            ctx.arc(400, 250, 18, 0, 2 * Math.PI);
+            ctx.fillStyle = 'rgba(239, 68, 68, 0.4)';
+            ctx.fill();
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = '#ef4444';
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(400, 250, 5, 0, 2 * Math.PI);
+            ctx.fillStyle = '#dc2626';
+            ctx.fill();
+
+            // 상단 주소 라벨
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
+            ctx.fillRect(15, 15, 450, 35);
+            ctx.font = 'bold 16px "맑은 고딕", sans-serif';
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(`📍 위치: ${address}`, 25, 38);
+
+            resolve(canvas.toDataURL('image/png'));
+          } else {
+            resolve(null);
+          }
+        };
+
+        img.onerror = () => {
+          // 지도 이미지 로드 차단 시 텍스트 및 기본 틀 그리기
+          const canvas = document.createElement('canvas');
+          canvas.width = 800;
+          canvas.height = 500;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#f8fafc';
+            ctx.fillRect(0, 0, 800, 500);
+            ctx.strokeStyle = '#cbd5e1';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(10, 10, 780, 480);
+
+            ctx.font = 'bold 20px "맑은 고딕", sans-serif';
+            ctx.fillStyle = '#1e293b';
+            ctx.textAlign = 'center';
+            ctx.fillText('📍 설치장소 위치도', 400, 230);
+            ctx.font = '16px "맑은 고딕", sans-serif';
+            ctx.fillStyle = '#2563eb';
+            ctx.fillText(`주소: ${address}`, 400, 270);
+
+            resolve(canvas.toDataURL('image/png'));
+          } else {
+            resolve(null);
+          }
+        };
+
+        img.src = staticUrl;
       });
     } catch {
       return null;
     }
   };
 
-  // 📊 원본 '안전투자.xlsx' 구조 완벽 미러링 & 브이월드 위치도 매핑 엑셀 생성
+  // 📊 엑셀 생성 및 위치도 자동 생성
   const exportToExcel = async () => {
     if (items.length === 0) {
       alert('다운로드할 데이터가 없습니다.');
@@ -124,7 +185,7 @@ export default function SafetyInvestmentApp() {
       const workbook = new ExcelJS.Workbook();
 
       // ==========================================
-      // 시트 1: [투자 내역] (기본 참고 자료 복제)
+      // 시트 1: [투자 내역]
       // ==========================================
       const invSheet = workbook.addWorksheet('투자 내역');
       invSheet.views = [{ showGridLines: true }];
@@ -222,7 +283,7 @@ export default function SafetyInvestmentApp() {
       }
 
       // ==========================================
-      // 시트 2: [리스트] (목록)
+      // 시트 2: [리스트]
       // ==========================================
       const listSheet = workbook.addWorksheet('리스트');
       listSheet.views = [{ showGridLines: true }];
@@ -335,10 +396,9 @@ export default function SafetyInvestmentApp() {
           }
         });
 
-        // 🌟 B6:H35 영역 완벽 병합 (위치도 틀 생성)
+        // B6:H35 영역 병합
         reportSheet.mergeCells('B6:H35');
 
-        // 테두리 선 전체 적용
         for (let r = 2; r <= 79; r++) {
           if ([1, 3, 36].includes(r)) continue;
           for (let c = 2; c <= 8; c++) {
@@ -348,7 +408,7 @@ export default function SafetyInvestmentApp() {
           }
         }
 
-        // 🗺️ 입력한 주소 기반 브이월드 정밀 위치 지도 자동 매핑
+        // 🗺️ 위치 지도 Canvas 인코딩 후 매핑
         if (item.location) {
           const autoMapImg = await fetchVWorldMapImage(item.location);
           if (autoMapImg) {
@@ -385,7 +445,6 @@ export default function SafetyInvestmentApp() {
 
         reportSheet.mergeCells('C60:H79');
 
-        // 1. 전경 사진 매핑 (C39:H59)
         if (item.fullImage) {
           const img1 = workbook.addImage({
             base64: item.fullImage,
@@ -397,7 +456,6 @@ export default function SafetyInvestmentApp() {
           });
         }
 
-        // 2. 상세 사진 매핑 (C60:H79)
         if (item.detailImage) {
           const img2 = workbook.addImage({
             base64: item.detailImage,
@@ -498,7 +556,7 @@ export default function SafetyInvestmentApp() {
               className="w-full p-2.5 bg-slate-50 border rounded-xl text-sm font-semibold outline-none focus:border-blue-500" 
             />
             <span className="text-[10px] text-blue-600 font-medium mt-1 block">
-              💡 입력하신 주소를 기반으로 브이월드 정밀 지도가 엑셀 위치도에 자동 매핑됩니다.
+              💡 입력하신 주소를 기반으로 엑셀 위치도 지도가 자동으로 매핑됩니다.
             </span>
           </div>
 
