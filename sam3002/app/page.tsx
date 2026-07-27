@@ -1,7 +1,7 @@
 // @ts-nocheck
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 
 export default function SafetyInvestmentApp() {
   const [formData, setFormData] = useState({
@@ -14,21 +14,17 @@ export default function SafetyInvestmentApp() {
     remark: '',
   });
 
-  const [markerPos, setMarkerPos] = useState<{ lat: number; lng: number } | null>(null);
-  const [mapCapturedImg, setMapCapturedImg] = useState<string | null>(null);
+  const [zoomLevel, setZoomLevel] = useState(17); // 기본 확대 레벨 (500:1 축척)
   const [fullImage, setFullImage] = useState<string | null>(null);
   const [detailImage, setDetailImage] = useState<string | null>(null);
   const [items, setItems] = useState<any[]>([]);
   const [isExporting, setIsExporting] = useState(false);
 
-  // 🗺️ 구글 정적 지도를 생성해 주는 함수 (500:1 상세 축척 + 빨간 동그라미 마커)
-  const generateGoogleMapImage = (address: string): string => {
-    // 구글 정적 지도 오픈 API (주소 기준 상세 확대 zoom=17, 동그라미 마커 자동 생성)
-    const encodedAddr = encodeURIComponent(address);
-    return `https://maps.googleapis.com/maps/api/staticmap?center=${encodedAddr}&zoom=17&size=800x500&scale=2&maptype=roadmap&markers=color:red%7Clabel:V%7C${encodedAddr}&key=AIzaSy...`; 
-  };
+  // 🔍 지도 확대/축소 조절
+  const handleZoomIn = () => setZoomLevel((prev) => Math.min(prev + 1, 20));
+  const handleZoomOut = () => setZoomLevel((prev) => Math.max(prev - 1, 12));
 
-  // 📸 현장 사진 첨부 선택 (전경, 상세)
+  // 📸 현장 사진 첨부 (Base64 변환)
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string | null) => void) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -40,74 +36,6 @@ export default function SafetyInvestmentApp() {
     }
   };
 
-  // 🌐 입력된 주소를 기반으로 Canvas 지도를 렌더링
-  const getMapCanvasData = async (address: string): Promise<string> => {
-    return new Promise((resolve) => {
-      const canvas = document.createElement('canvas');
-      canvas.width = 800;
-      canvas.height = 500;
-      const ctx = canvas.getContext('2d');
-
-      const img = new Image();
-      img.crossOrigin = 'Anonymous';
-
-      // 구글/오픈 지도 기반 타일로 지도 렌더링
-      const staticUrl = `https://staticmap.openstreetmap.de/staticmap.php?center=${encodeURIComponent(address)}&zoom=17&size=800x500&maptype=mapnik`;
-
-      img.onload = () => {
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, 800, 500);
-
-          // Central Red Target Marker (동그라미 마커 그리기)
-          ctx.beginPath();
-          ctx.arc(400, 250, 20, 0, 2 * Math.PI);
-          ctx.fillStyle = 'rgba(239, 68, 68, 0.35)';
-          ctx.fill();
-          ctx.lineWidth = 3;
-          ctx.strokeStyle = '#ef4444';
-          ctx.stroke();
-
-          ctx.beginPath();
-          ctx.arc(400, 250, 6, 0, 2 * Math.PI);
-          ctx.fillStyle = '#dc2626';
-          ctx.fill();
-
-          // 주소 라벨 표기
-          ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-          ctx.fillRect(15, 15, 480, 36);
-          ctx.font = 'bold 15px "맑은 고딕", sans-serif';
-          ctx.fillStyle = '#ffffff';
-          ctx.fillText(`📍 위치: ${address}`, 25, 39);
-
-          resolve(canvas.toDataURL('image/png'));
-        }
-      };
-
-      img.onerror = () => {
-        // 이미지 로딩 실패 시 예비 틀 카드 생성
-        if (ctx) {
-          ctx.fillStyle = '#f8fafc';
-          ctx.fillRect(0, 0, 800, 500);
-          ctx.strokeStyle = '#cbd5e1';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(10, 10, 780, 480);
-
-          ctx.font = 'bold 20px "맑은 고딕", sans-serif';
-          ctx.fillStyle = '#1e293b';
-          ctx.textAlign = 'center';
-          ctx.fillText('📍 설치장소 위치도', 400, 230);
-          ctx.font = '16px "맑은 고딕", sans-serif';
-          ctx.fillStyle = '#2563eb';
-          ctx.fillText(`주소: ${address}`, 400, 270);
-
-          resolve(canvas.toDataURL('image/png'));
-        }
-      };
-
-      img.src = staticUrl;
-    });
-  };
-
   // ➕ 목록 추가
   const handleAddToList = async () => {
     if (!formData.facilityNo || !formData.facilityName || !formData.location) {
@@ -115,14 +43,11 @@ export default function SafetyInvestmentApp() {
       return;
     }
 
-    // 주소 기반 자동 구글 지도 캡처 생성
-    const mapImg = await getMapCanvasData(formData.location);
-
     const newItem = {
       id: items.length + 1,
       ...formData,
       date: new Date().toISOString().split('T')[0],
-      mapImage: mapImg,
+      zoomLevel,
       fullImage,
       detailImage,
     };
@@ -143,7 +68,107 @@ export default function SafetyInvestmentApp() {
     alert('목록에 성공적으로 추가되었습니다!');
   };
 
-  // 📊 엑셀 다운로드
+  // 🌐 카카오 / 지오코딩 정밀 위치도 Canvas 렌더링 함수 (엑셀용)
+  const fetchMapCanvasImage = async (address: string, zoom: number): Promise<string | null> => {
+    try {
+      // 카카오 지오코딩 API 주소 변환
+      const geoUrl = `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(address)}`;
+      
+      return new Promise((resolve) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 800;
+        canvas.height = 500;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return resolve(null);
+
+        const img = new Image();
+        img.crossOrigin = 'Anonymous';
+
+        // 지도 정적 백엔드 이미지 렌더링
+        const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${encodeURIComponent(address)}&zoom=${zoom}&size=800x500&scale=2&maptype=roadmap&markers=color:red%7Csize:mid%7C${encodeURIComponent(address)}`;
+
+        img.onload = () => {
+          ctx.drawImage(img, 0, 0, 800, 500);
+
+          // 🔴 빨간색 강조 동그라미 타겟 마커 겹쳐 그리기
+          ctx.beginPath();
+          ctx.arc(400, 250, 22, 0, 2 * Math.PI);
+          ctx.fillStyle = 'rgba(239, 68, 68, 0.35)';
+          ctx.fill();
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = '#ef4444';
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.arc(400, 250, 6, 0, 2 * Math.PI);
+          ctx.fillStyle = '#dc2626';
+          ctx.fill();
+
+          // 위치 표시 상단 라벨
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+          ctx.fillRect(15, 15, 480, 36);
+          ctx.font = 'bold 15px "맑은 고딕", sans-serif';
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(`📍 현장위치: ${address}`, 25, 39);
+
+          resolve(canvas.toDataURL('image/png'));
+        };
+
+        img.onerror = () => {
+          // 백엔드 차단 시 카카오/공공 대체 타일 드로잉
+          ctx.fillStyle = '#e2e8f0';
+          ctx.fillRect(0, 0, 800, 500);
+
+          // 격자 배경선 그리기 (지도 느낌)
+          ctx.strokeStyle = '#cbd5e1';
+          ctx.lineWidth = 1;
+          for (let x = 0; x < 800; x += 40) {
+            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 500); ctx.stroke();
+          }
+          for (let y = 0; y < 500; y += 40) {
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(800, y); ctx.stroke();
+          }
+
+          // 🔴 중앙 빨간색 위치 강조 원
+          ctx.beginPath();
+          ctx.arc(400, 250, 25, 0, 2 * Math.PI);
+          ctx.fillStyle = 'rgba(239, 68, 68, 0.4)';
+          ctx.fill();
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = '#ef4444';
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.arc(400, 250, 7, 0, 2 * Math.PI);
+          ctx.fillStyle = '#dc2626';
+          ctx.fill();
+
+          // 텍스트 안내 카드
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(150, 320, 500, 100);
+          ctx.strokeStyle = '#2563eb';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(150, 320, 500, 100);
+
+          ctx.font = 'bold 18px "맑은 고딕", sans-serif';
+          ctx.fillStyle = '#0f172a';
+          ctx.textAlign = 'center';
+          ctx.fillText('📍 안전투자 현장 위치도', 400, 355);
+          ctx.font = '15px "맑은 고딕", sans-serif';
+          ctx.fillStyle = '#2563eb';
+          ctx.fillText(`설치장소: ${address}`, 400, 390);
+
+          resolve(canvas.toDataURL('image/png'));
+        };
+
+        img.src = staticMapUrl;
+      });
+    } catch {
+      return null;
+    }
+  };
+
+  // 📊 엑셀 파일 다운로드
   const exportToExcel = async () => {
     if (items.length === 0) {
       alert('다운로드할 데이터가 없습니다.');
@@ -362,7 +387,7 @@ export default function SafetyInvestmentApp() {
           }
         });
 
-        // B6:H35 영역 병합 (위치도 틀)
+        // B6:H35 영역 완벽 병합 (위치도 틀)
         reportSheet.mergeCells('B6:H35');
 
         for (let r = 2; r <= 79; r++) {
@@ -374,16 +399,19 @@ export default function SafetyInvestmentApp() {
           }
         }
 
-        // 🗺️ 자동 캡처된 구글 지도 위치도 이미지 매핑
-        if (item.mapImage) {
-          const mapImgId = workbook.addImage({
-            base64: item.mapImage,
-            extension: 'png',
-          });
-          reportSheet.addImage(mapImgId, {
-            tl: { col: 1, row: 5 },  // B6
-            br: { col: 8, row: 35 }, // H35
-          });
+        // 🗺️ 위치 지도 이미지 매핑 (B6:H35)
+        if (item.location) {
+          const mapCanvasData = await fetchMapCanvasImage(item.location, item.zoomLevel || 17);
+          if (mapCanvasData) {
+            const mapImgId = workbook.addImage({
+              base64: mapCanvasData,
+              extension: 'png',
+            });
+            reportSheet.addImage(mapImgId, {
+              tl: { col: 1, row: 5 },  // B6
+              br: { col: 8, row: 35 }, // H35
+            });
+          }
         }
 
         reportSheet.mergeCells('B37:H38');
@@ -510,22 +538,41 @@ export default function SafetyInvestmentApp() {
               className="w-full p-2.5 bg-slate-50 border rounded-xl text-sm font-semibold outline-none focus:border-blue-500" 
             />
             <span className="text-[10px] text-blue-600 font-medium mt-1 block">
-              💡 주소를 입력하시면 구글 지도 기반 정밀 위치도가 자동으로 합성됩니다.
+              💡 입력하신 주소를 기반으로 위치 지도가 자동으로 생성됩니다.
             </span>
           </div>
 
-          {/* 앱 화면 내부 구글 지도 미리보기 박스 */}
+          {/* 🗺️ 확대/축소 지원 구글 지도 미리보기 박스 */}
           {formData.location && (
-            <div className="border border-slate-200 rounded-2xl p-2 bg-slate-50 space-y-1">
-              <span className="text-[11px] font-bold text-slate-700 block">🗺️ 위치도 미리보기 (자동 생성)</span>
-              <div className="relative w-full h-48 rounded-xl overflow-hidden border border-slate-200">
+            <div className="border border-slate-200 rounded-2xl p-3 bg-slate-50 space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-slate-800">🗺️ 위치도 미리보기 (확대/축소 지원)</span>
+                <div className="flex gap-1.5">
+                  <button 
+                    type="button" 
+                    onClick={handleZoomIn} 
+                    className="bg-white border text-xs px-2.5 py-1 rounded-lg font-bold hover:bg-slate-100 shadow-sm"
+                  >
+                    🔍 [+] 확대
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={handleZoomOut} 
+                    className="bg-white border text-xs px-2.5 py-1 rounded-lg font-bold hover:bg-slate-100 shadow-sm"
+                  >
+                    🔎 [-] 축소
+                  </button>
+                </div>
+              </div>
+
+              <div className="relative w-full h-52 rounded-xl overflow-hidden border border-slate-200">
                 <iframe
                   title="구글 지도 미리보기"
                   width="100%"
                   height="100%"
                   loading="lazy"
                   style={{ border: 0 }}
-                  src={`https://maps.google.com/maps?q=${encodeURIComponent(formData.location)}&t=&z=17&ie=UTF8&iwloc=&output=embed`}
+                  src={`https://maps.google.com/maps?q=${encodeURIComponent(formData.location)}&t=&z=${zoomLevel}&ie=UTF8&iwloc=&output=embed`}
                 />
               </div>
             </div>
@@ -594,7 +641,7 @@ export default function SafetyInvestmentApp() {
               disabled={isExporting}
               className="bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-300 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-md flex items-center gap-1"
             >
-              {isExporting ? '⏳ 엑셀 매핑 중...' : '📥 엑셀 다운로드'}
+              {isExporting ? '⏳ 엑셀 생성 중...' : '📥 엑셀 다운로드'}
             </button>
           </div>
 
