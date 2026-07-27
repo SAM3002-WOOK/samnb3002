@@ -19,7 +19,7 @@ export default function SafetyInvestmentApp() {
   const [items, setItems] = useState<any[]>([]);
   const [isExporting, setIsExporting] = useState(false);
 
-  // 🗺️ 네이버 지도검색 열기
+  // 🗺️ 네이버 지도 확인 (주소 검색 열기)
   const handleOpenNaverMap = () => {
     if (!formData.location && !formData.facilityName) {
       alert('설치장소(주소) 또는 시설명을 먼저 입력해주세요.');
@@ -29,7 +29,7 @@ export default function SafetyInvestmentApp() {
     window.open(`https://map.naver.com/v5/search/${encodeURIComponent(searchQuery)}`, '_blank');
   };
 
-  // 📸 사진 선택 및 Base64 변환
+  // 📸 사진 첨부 선택 (Base64 변환)
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string | null) => void) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -72,10 +72,11 @@ export default function SafetyInvestmentApp() {
     alert('목록에 성공적으로 추가되었습니다!');
   };
 
-  // 🌐 주소 기반 정적 지도 이미지 생성 보조 함수
+  // 🌐 주소 입력 시 지도 중심에 위치 표시 동그라미/핀 마커가 추가된 위치도 지도 이미지 자동 생성
   const fetchStaticMapImage = async (address: string): Promise<string | null> => {
     try {
-      const mapUrl = `https://map2.daum.net/map/imageserver/v2/STATICMAP?w=800&h=500&coordX=&coordY=&q=${encodeURIComponent(address)}&level=3`;
+      // 카카오 Static Map API: 주소(q) 검색 기반 고화질 정적 지도 + 중심 마커 자동 추가
+      const mapUrl = `https://map2.daum.net/map/imageserver/v2/STATICMAP?w=900&h=600&q=${encodeURIComponent(address)}&level=3&marker=true`;
       const response = await fetch(mapUrl);
       if (!response.ok) return null;
       const blob = await response.blob();
@@ -90,7 +91,7 @@ export default function SafetyInvestmentApp() {
     }
   };
 
-  // 📊 원본 '안전투자.xlsx' 구조 완벽 미러링 엑셀 생성
+  // 📊 원본 '안전투자.xlsx' 구조 미러링 & 위치도 자동 매핑 엑셀 생성
   const exportToExcel = async () => {
     if (items.length === 0) {
       alert('다운로드할 데이터가 없습니다.');
@@ -315,17 +316,30 @@ export default function SafetyInvestmentApp() {
           }
         });
 
-        // 위치도 지도를 B6:H35 영역에 자동 매핑
+        // 🌟 B6:H35 영역 완벽 병합 (위치도 틀 생성)
+        reportSheet.mergeCells('B6:H35');
+
+        // 테두리 선 전체 적용
+        for (let r = 2; r <= 79; r++) {
+          if ([1, 3, 36].includes(r)) continue;
+          for (let c = 2; c <= 8; c++) {
+            reportSheet.getCell(r, c).border = {
+              top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' }
+            };
+          }
+        }
+
+        // 🗺️ 입력한 주소 기반으로 동그라미 마커가 포함된 위치 지도 이미지 자동 매핑
         if (item.location) {
-          const mapDataUrl = await fetchStaticMapImage(item.location);
-          if (mapDataUrl) {
+          const autoMapImg = await fetchStaticMapImage(item.location);
+          if (autoMapImg) {
             const mapImgId = workbook.addImage({
-              base64: mapDataUrl,
+              base64: autoMapImg,
               extension: 'png',
             });
             reportSheet.addImage(mapImgId, {
-              tl: { col: 1, row: 5 },
-              br: { col: 8, row: 35 },
+              tl: { col: 1, row: 5 },  // B6
+              br: { col: 8, row: 35 }, // H35
             });
           }
         }
@@ -352,16 +366,7 @@ export default function SafetyInvestmentApp() {
 
         reportSheet.mergeCells('C60:H79');
 
-        for (let r = 2; r <= 79; r++) {
-          if ([1, 3, 36].includes(r)) continue;
-          for (let c = 2; c <= 8; c++) {
-            reportSheet.getCell(r, c).border = {
-              top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' }
-            };
-          }
-        }
-
-        // 전경 사진 매핑
+        // 1. 전경 사진 매핑 (C39:H59)
         if (item.fullImage) {
           const img1 = workbook.addImage({
             base64: item.fullImage,
@@ -373,7 +378,7 @@ export default function SafetyInvestmentApp() {
           });
         }
 
-        // 상세 사진 매핑
+        // 2. 상세 사진 매핑 (C60:H79)
         if (item.detailImage) {
           const img2 = workbook.addImage({
             base64: item.detailImage,
@@ -415,7 +420,7 @@ export default function SafetyInvestmentApp() {
             <img src="/logo.png" alt="삼천리 로고" className="h-10 object-contain" />
           </div>
           <h1 className="text-2xl font-black text-slate-900">안전투자 사업계획 등록 시스템</h1>
-          <p className="text-xs text-gray-500">모바일 현장 조사 및 원본 미러링 엑셀 출력</p>
+          <p className="text-xs text-gray-500">모바일 현장 조사 및 자동 위치도 엑셀 출력</p>
         </div>
 
         {/* 입력 폼 */}
@@ -464,7 +469,7 @@ export default function SafetyInvestmentApp() {
                 onClick={handleOpenNaverMap} 
                 className="text-[11px] bg-emerald-100 text-emerald-800 font-bold px-2.5 py-1 rounded-lg hover:bg-emerald-200"
               >
-                🗺️ 네이버 지도 확인
+                🗺️ 지도 위치 확인
               </button>
             </div>
             <input 
@@ -475,7 +480,7 @@ export default function SafetyInvestmentApp() {
               className="w-full p-2.5 bg-slate-50 border rounded-xl text-sm font-semibold outline-none focus:border-blue-500" 
             />
             <span className="text-[10px] text-blue-600 font-medium mt-1 block">
-              💡 입력하신 주소를 기반으로 엑셀 B6:H35 영역에 지도가 자동 매핑됩니다.
+              💡 입력하신 주소를 기반으로 엑셀 위치도(동그라미 마커 표시)가 자동 매핑됩니다.
             </span>
           </div>
 
@@ -502,7 +507,7 @@ export default function SafetyInvestmentApp() {
             </div>
           </div>
 
-          {/* 사진 첨부 2종 */}
+          {/* 현장 사진 첨부 2종 */}
           <div className="space-y-3 pt-2 border-t">
             <h3 className="text-xs font-bold text-gray-700">📸 현장 사진 첨부 (2종)</h3>
 
@@ -542,7 +547,7 @@ export default function SafetyInvestmentApp() {
               disabled={isExporting}
               className="bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-300 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-md flex items-center gap-1"
             >
-              {isExporting ? '⏳ 엑셀 미러링 생성 중...' : '📥 엑셀 다운로드'}
+              {isExporting ? '⏳ 엑셀 매핑 중...' : '📥 엑셀 다운로드'}
             </button>
           </div>
 
