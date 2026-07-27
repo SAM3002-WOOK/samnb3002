@@ -102,9 +102,7 @@ export default function SafetyInvestmentApp() {
       const ExcelJS = (await import('exceljs')).default;
       const workbook = new ExcelJS.Workbook();
 
-      // ==========================================
-      // 시트 1: [투자 내역] (기본 참고 자료 복제)
-      // ==========================================
+      // 1. [투자 내역] 시트
       const invSheet = workbook.addWorksheet('투자 내역');
       invSheet.views = [{ showGridLines: true }];
 
@@ -120,7 +118,7 @@ export default function SafetyInvestmentApp() {
 
       const invHeaders = ['구분', '시설물', '작업명', '세부 내역', '비고'];
       invHeaders.forEach((h, i) => {
-        const colLetter = String.fromCharCode(66 + i); // B, C, D, E, F
+        const colLetter = String.fromCharCode(66 + i);
         const cell = invSheet.getCell(`${colLetter}4`);
         cell.value = h;
         cell.font = { name: '맑은 고딕', size: 11, bold: true };
@@ -183,7 +181,6 @@ export default function SafetyInvestmentApp() {
         row.height = 17.25;
       });
 
-      // 투자내역 셀 병합 적용
       const invMerges = [
         'C5:C22', 'D5:D12', 'D13:D15', 'D16:D19', 'D20:D21',
         'C23:C37', 'D23:D25', 'D26:D27', 'D28:D29', 'D30:D33', 'D34:D35', 'D36:D37', 'F36:F37',
@@ -193,7 +190,6 @@ export default function SafetyInvestmentApp() {
       ];
       invMerges.forEach(m => invSheet.mergeCells(m));
 
-      // 테두리 설정
       for (let r = 4; r <= 47; r++) {
         for (let c = 2; c <= 6; c++) {
           invSheet.getCell(r, c).border = {
@@ -202,9 +198,7 @@ export default function SafetyInvestmentApp() {
         }
       }
 
-      // ==========================================
-      // 시트 2: [리스트] (목록)
-      // ==========================================
+      // 2. [리스트] 시트
       const listSheet = workbook.addWorksheet('리스트');
       listSheet.views = [{ showGridLines: true }];
 
@@ -226,7 +220,7 @@ export default function SafetyInvestmentApp() {
 
       const listHeaders = ['구분', '시설번호', '시설명', '시설위치', '등록일자', '작업명', '사유', '작성자', '비고'];
       listHeaders.forEach((h, i) => {
-        const colLetter = String.fromCharCode(66 + i); // B~J
+        const colLetter = String.fromCharCode(66 + i);
         const cell = listSheet.getCell(`${colLetter}4`);
         cell.value = h;
         cell.font = { name: '맑은 고딕', size: 11 };
@@ -261,9 +255,7 @@ export default function SafetyInvestmentApp() {
         }
       });
 
-      // ==========================================
-      // 시트 3~N: 개별 보고서 ('1', '2'...)
-      // ==========================================
+      // 3. 개별 보고서 시트 ('1', '2'...)
       for (let idx = 0; idx < items.length; idx++) {
         const item = items[idx];
         const reportSheet = workbook.addWorksheet(`${idx + 1}`);
@@ -287,14 +279,12 @@ export default function SafetyInvestmentApp() {
         reportSheet.getRow(37).height = 17.25;
         reportSheet.getRow(38).height = 17.25;
 
-        // B2:H2 위 치 도 및 사 진
         reportSheet.mergeCells('B2:H2');
         const b2 = reportSheet.getCell('B2');
         b2.value = '위 치 도 및 사 진';
         b2.font = { name: '맑은 고딕', size: 14, bold: true };
         b2.alignment = { horizontal: 'center', vertical: 'middle' };
 
-        // 4행
         reportSheet.mergeCells('B4:C4');
         reportSheet.getCell('B4').value = '시 설 번 호';
         reportSheet.getCell('D4').value = item.facilityNo;
@@ -302,7 +292,6 @@ export default function SafetyInvestmentApp() {
         reportSheet.mergeCells('F4:H4');
         reportSheet.getCell('F4').value = item.location;
 
-        // 5행
         reportSheet.mergeCells('B5:C5');
         reportSheet.getCell('B5').value = '작 업 명';
         reportSheet.getCell('D5').value = item.workName;
@@ -319,7 +308,6 @@ export default function SafetyInvestmentApp() {
           }
         });
 
-        // 🗺️ 지도 이미지 B6:H35 (30행 영역)
         if (item.location) {
           const mapDataUrl = await fetchStaticMapImage(item.location);
           if (mapDataUrl) {
@@ -328,40 +316,34 @@ export default function SafetyInvestmentApp() {
               extension: 'png',
             });
             reportSheet.addImage(mapImgId, {
-              tl: { col: 1, row: 5 },  // B6
-              br: { col: 8, row: 35 }, // H35
+              tl: { col: 1, row: 5 },
+              br: { col: 8, row: 35 },
             });
           }
         }
 
-        // B37:H38 현 장 사 진
         reportSheet.mergeCells('B37:H38');
         const b37 = reportSheet.getCell('B37');
         b37.value = '현 장 사 진';
         b37.font = { name: '맑은 고딕', size: 14, bold: true };
         b37.alignment = { horizontal: 'center', vertical: 'middle' };
 
-        // B39:B59 전경사진 레이블
         reportSheet.mergeCells('B39:B59');
         const b39 = reportSheet.getCell('B39');
         b39.value = '전\n\n경\n\n사\n\n진';
         b39.font = { name: '맑은 고딕', size: 11 };
         b39.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
 
-        // C39:H59 영역 병합
         reportSheet.mergeCells('C39:H59');
 
-        // B60:B79 상세사진 레이블
         reportSheet.mergeCells('B60:B79');
         const b60 = reportSheet.getCell('B60');
         b60.value = '상\n\n세\n\n사\n\n진';
         b60.font = { name: '맑은 고딕', size: 11 };
         b60.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
 
-        // C60:H79 영역 병합
         reportSheet.mergeCells('C60:H79');
 
-        // 테두리 선 전체 적용
         for (let r = 2; r <= 79; r++) {
           if ([1, 3, 36].includes(r)) continue;
           for (let c = 2; c <= 8; c++) {
@@ -371,32 +353,29 @@ export default function SafetyInvestmentApp() {
           }
         }
 
-        // 1. 전경 사진 (C39:H59)
         if (item.fullImage) {
           const img1 = workbook.addImage({
             base64: item.fullImage,
             extension: 'png',
           });
           reportSheet.addImage(img1, {
-            tl: { col: 2, row: 38 }, // C39
-            br: { col: 8, row: 59 }, // H59
+            tl: { col: 2, row: 38 },
+            br: { col: 8, row: 59 },
           });
         }
 
-        // 2. 상세 사진 (C60:H79)
         if (item.detailImage) {
           const img2 = workbook.addImage({
             base64: item.detailImage,
             extension: 'png',
           });
           reportSheet.addImage(img2, {
-            tl: { col: 2, row: 59 }, // C60
-            br: { col: 8, row: 79 }, // H79
+            tl: { col: 2, row: 59 },
+            br: { col: 8, row: 79 },
           });
         }
       }
 
-      // 모바일 블록 방지 Blob 다운로드
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = window.URL.createObjectURL(blob);
@@ -409,7 +388,7 @@ export default function SafetyInvestmentApp() {
       document.body.removeChild(anchor);
 
       alert('엑셀 파일이 정상적으로 다운로드되었습니다!');
-    } catch (err) {
+    } catch {
       alert('엑셀 다운로드 중 오류가 발생했습니다.');
     } finally {
       setIsExporting(false);
