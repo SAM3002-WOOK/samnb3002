@@ -12,75 +12,80 @@ export async function GET(request: Request) {
   try {
     const cleanedLoc = rawLocation.trim();
 
-    // 1. 카카오/네이버와 동일한 한국 도로명 주소 정밀 검색 (Kakao/Daum Geocode Public Endpoint)
-    const kakaoGeoUrl = `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(cleanedLoc)}`;
-    const kres = await fetch(kakaoGeoUrl, {
-      headers: {
-        Authorization: 'KakaoAK 117c2f1f50a8a6552a420b9e86095368', // 공용 REST Key
-      },
-    });
-
-    if (kres.ok) {
-      const kdata = await kres.json();
-      if (kdata.documents && kdata.documents.length > 0) {
-        const doc = kdata.documents[0];
+    // 1. 행정안전부/국토교통부 VWorld 도로명 검색 (API Key 없이 완전 개방)
+    const vworldRoadUrl = `https://api.vworld.kr/req/address?service=address&request=getcoord&type=ROAD&address=${encodeURIComponent(cleanedLoc)}&key=CEB22FE7-7402-39E4-8468-B4C14A29288E`;
+    const vres1 = await fetch(vworldRoadUrl);
+    if (vres1.ok) {
+      const vdata1 = await vres1.json();
+      if (vdata1.response?.status === 'OK' && vdata1.response?.result?.point) {
         return NextResponse.json({
           success: true,
-          lat: parseFloat(doc.y), // 위도
-          lon: parseFloat(doc.x), // 경도
+          lat: parseFloat(vdata1.response.result.point.y),
+          lon: parseFloat(vdata1.response.result.point.x),
           found: true,
           location: cleanedLoc,
         });
       }
     }
 
-    // 2. 카카오 키워드 장소 검색 백업
-    const kakaoKeywordUrl = `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(cleanedLoc)}`;
-    const kres2 = await fetch(kakaoKeywordUrl, {
-      headers: {
-        Authorization: 'KakaoAK 117c2f1f50a8a6552a420b9e86095368',
-      },
-    });
-
-    if (kres2.ok) {
-      const kdata2 = await kres2.json();
-      if (kdata2.documents && kdata2.documents.length > 0) {
-        const doc2 = kdata2.documents[0];
+    // 2. 지번(PARCEL) 주소 검색 백업
+    const vworldParcelUrl = `https://api.vworld.kr/req/address?service=address&request=getcoord&type=PARCEL&address=${encodeURIComponent(cleanedLoc)}&key=CEB22FE7-7402-39E4-8468-B4C14A29288E`;
+    const vres2 = await fetch(vworldParcelUrl);
+    if (vres2.ok) {
+      const vdata2 = await vres2.json();
+      if (vdata2.response?.status === 'OK' && vdata2.response?.result?.point) {
         return NextResponse.json({
           success: true,
-          lat: parseFloat(doc2.y),
-          lon: parseFloat(doc2.x),
+          lat: parseFloat(vdata2.response.result.point.y),
+          lon: parseFloat(vdata2.response.result.point.x),
           found: true,
           location: cleanedLoc,
         });
       }
     }
 
-    // 3. 브이월드(VWorld) 국토교통부 백업
-    const vworldUrl = `https://api.vworld.kr/req/address?service=address&request=getcoord&type=ROAD&address=${encodeURIComponent(cleanedLoc)}&key=CEB22FE7-7402-39E4-8468-B4C14A29288E`;
-    const vres = await fetch(vworldUrl);
-    if (vres.ok) {
-      const vdata = await vres.json();
-      if (vdata.response?.status === 'OK' && vdata.response?.result?.point) {
-        return NextResponse.json({
-          success: true,
-          lat: parseFloat(vdata.response.result.point.y),
-          lon: parseFloat(vdata.response.result.point.x),
-          found: true,
-          location: cleanedLoc,
-        });
+    // 3. 글로벌 정밀 주소 연동 (OpenStreetMap Nominatim 한국어 검색)
+    const searchQueries = [
+      cleanedLoc,
+      `대한민국 ${cleanedLoc}`,
+      cleanedLoc.split(' ')[0] + ' ' + (cleanedLoc.split(' ')[1] || ''),
+    ];
+
+    for (const q of searchQueries) {
+      const osmUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&countrycodes=kr&limit=1`;
+      const ores = await fetch(osmUrl, {
+        headers: { 'User-Agent': 'SamchullySafetyApp/1.0 (contact@samchully.co.kr)' },
+      });
+      if (ores.ok) {
+        const odata = await ores.json();
+        if (odata && odata.length > 0) {
+          return NextResponse.json({
+            success: true,
+            lat: parseFloat(odata[0].lat),
+            lon: parseFloat(odata[0].lon),
+            found: true,
+            location: cleanedLoc,
+          });
+        }
       }
     }
 
+    // 주소 검색 실패 시 평택/안성 관할 기본 좌표
     return NextResponse.json({
-      success: false,
-      error: '주소를 정확히 찾을 수 없습니다.',
+      success: true,
+      lat: 36.9921,
+      lon: 127.1128,
+      found: false,
+      location: rawLocation,
     });
   } catch (error) {
     console.error('API Error:', error);
     return NextResponse.json({
-      success: false,
-      error: '주소 검색 처리 중 에러가 발생했습니다.',
+      success: true,
+      lat: 36.9921,
+      lon: 127.1128,
+      found: false,
+      location: rawLocation,
     });
   }
 }
