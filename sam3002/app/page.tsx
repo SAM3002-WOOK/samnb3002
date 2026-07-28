@@ -60,7 +60,7 @@ export default function SafetyInvestmentApp() {
   const [isMapLoading, setIsMapLoading] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // 🗺️ 스마트 대화형 지도 관련 Ref
+  // 🗺️ 구글 지도 관련 Ref
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const olMapRef = useRef<any>(null);
   const [showInteractiveMap, setShowInteractiveMap] = useState(false);
@@ -158,7 +158,7 @@ export default function SafetyInvestmentApp() {
     }));
   };
 
-  // 🗺️ 지도 초기화 (알림창 없이 바로 조작)
+  // 🗺️ 구글 정밀 지도 레이어 초기화
   const initInteractiveMap = (lon: number, lat: number) => {
     if (!mapContainerRef.current || !window.ol) return;
 
@@ -172,7 +172,8 @@ export default function SafetyInvestmentApp() {
       layers: [
         new window.ol.layer.Tile({
           source: new window.ol.source.XYZ({
-            url: 'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+            // 🌐 Google Maps 타일 서버 엔진
+            url: 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
             crossOrigin: 'anonymous',
           }),
         }),
@@ -180,15 +181,15 @@ export default function SafetyInvestmentApp() {
       view: new window.ol.View({
         center: window.ol.proj.fromLonLat([lon, lat]),
         zoom: 17,
-        maxZoom: 19,
-        minZoom: 12,
+        maxZoom: 20,
+        minZoom: 10,
       }),
     });
 
     olMapRef.current = map;
   };
 
-  // ⚡ 알림창 없는 한국 국토부 VWorld 기반 정밀 지도 조작 화면
+  // ⚡ 구글 지도 기반 주소 정밀 검색
   const handleAutoGenerateMap = async () => {
     if (!formData.location) {
       alert('설치장소(주소)를 먼저 입력해 주세요.');
@@ -207,7 +208,7 @@ export default function SafetyInvestmentApp() {
           initInteractiveMap(data.lon, data.lat);
         }, 80);
       } else {
-        alert('주소를 정확히 찾지 못했습니다. 설치장소(주소)를 확인해 주세요.');
+        alert('주소를 정확히 찾지 못했습니다. 도로명/지번을 확인해 주세요.');
       }
     } catch (e) {
       console.error(e);
@@ -217,7 +218,7 @@ export default function SafetyInvestmentApp() {
     }
   };
 
-  // 📸 현재 조정한 화면 그대로 엑셀 저장용 캡처 (알림창 제거)
+  // 📸 현재 조정한 화면 그대로 엑셀 저장용 캡처
   const handleCaptureCurrentMap = () => {
     if (!olMapRef.current) return;
 
@@ -631,7 +632,7 @@ export default function SafetyInvestmentApp() {
             extension: 'png',
           });
           reportSheet.addImage(img2, {
-            tl: { col: 2, row: 59 },
+            tl: { col: 2, row: 38 },
             br: { col: 8, row: 79 },
           });
         }
@@ -722,11 +723,11 @@ export default function SafetyInvestmentApp() {
             />
           </div>
 
-          {/* ⚡ 스마트 지도 구역 */}
+          {/* ⚡ 구글 스마트 지도 구역 */}
           <div className="border border-blue-200 rounded-2xl p-4 bg-blue-50/40 space-y-3">
             <div className="flex justify-between items-center">
               <div>
-                <span className="text-xs font-bold text-blue-900 block">🗺️ 위치도 스마트 지도</span>
+                <span className="text-xs font-bold text-blue-900 block">🗺️ 위치도 구글 지도</span>
                 <span className="text-[10px] text-gray-500">주소 입력 후 아래 버튼을 터치하세요. (마우스 휠 줌/드래그 지원)</span>
               </div>
             </div>
@@ -737,13 +738,13 @@ export default function SafetyInvestmentApp() {
               disabled={isMapLoading}
               className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold py-3 px-4 rounded-xl shadow-sm transition flex items-center justify-center gap-2 text-xs"
             >
-              {isMapLoading ? '⏳ 주소 정밀 검색 중...' : '⚡ 주소 정밀 검색 및 지도 조작 화면 열기'}
+              {isMapLoading ? '⏳ 구글 정밀 지도 검색 중...' : '⚡ 구글 지도 정밀 검색 및 조작 화면 열기'}
             </button>
 
             {showInteractiveMap && (
               <div className="space-y-2 pt-1">
                 <span className="text-[11px] font-bold text-blue-700 block">
-                  👉 <b>마우스 휠로 확대/축소</b> 및 <b>드래그</b>로 원하시는 위치를 맞춘 후 [현재 화면 캡처] 버튼을 누르세요.
+                  👉 <b>마우스 휠로 확대/축소</b> 및 <b>드래그</b>로 원하시는 위치를 맞춘 후 [현재 구글 지도 화면 캡처] 버튼을 누르세요.
                 </span>
 
                 <div className="relative w-full h-72 rounded-2xl overflow-hidden border-2 border-blue-400 shadow-md">
@@ -766,7 +767,7 @@ export default function SafetyInvestmentApp() {
                   onClick={handleCaptureCurrentMap}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl shadow-sm text-xs transition"
                 >
-                  📸 현재 조정한 지도 영역 캡처 및 엑셀 저장용 지정
+                  📸 현재 조정한 구글 지도 화면 캡처 및 엑셀 저장용 지정
                 </button>
               </div>
             )}
