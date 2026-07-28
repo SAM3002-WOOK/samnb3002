@@ -57,15 +57,21 @@ export default function SafetyInvestmentApp() {
   const [detailImage, setDetailImage] = useState<string | null>(null);
   const [items, setItems] = useState<any[]>([]);
   const [isExporting, setIsExporting] = useState(false);
-  const [isMapLoading, setIsMapLoading] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // 🗺️ 지도 관련 Ref
+  // 🗺️ 스마트 지도 관련 Ref 및 State
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const olMapRef = useRef<any>(null);
   const [showInteractiveMap, setShowInteractiveMap] = useState(false);
 
+  // 다음 우편번호 API 및 OpenLayers 라이브러리 스크립트 로드
   useEffect(() => {
+    if (!document.getElementById('daum-postcode-script')) {
+      const script = document.createElement('script');
+      script.id = 'daum-postcode-script';
+      script.src = '//t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js';
+      document.head.appendChild(script);
+    }
     if (!document.getElementById('ol-css')) {
       const link = document.createElement('link');
       link.id = 'ol-css';
@@ -158,7 +164,7 @@ export default function SafetyInvestmentApp() {
     }));
   };
 
-  // 🗺️ 정밀 지도 초기화 (전달받은 정확한 위도/경도로 시점 이동)
+  // 🗺️ 정밀 지도 생성 및 위치 지정
   const initInteractiveMap = (lon: number, lat: number) => {
     if (!mapContainerRef.current || !window.ol) return;
 
@@ -188,37 +194,46 @@ export default function SafetyInvestmentApp() {
     olMapRef.current = map;
   };
 
-  // ⚡ 검색 좌표(data.lon, data.lat)를 직접 넘겨주도록 버그 수정!
-  const handleAutoGenerateMap = async () => {
-    if (!formData.location) {
-      alert('설치장소(주소)를 먼저 입력해 주세요.');
+  // 🔍 [카카오/다음 공식 주소 검색창 열기]
+  const handleOpenDaumPostcode = () => {
+    if (!window.daum || !window.daum.Postcode) {
+      alert('주소 검색 서비스를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.');
       return;
     }
 
-    setIsMapLoading(true);
+    new window.daum.Postcode({
+      oncomplete: function (data) {
+        const fullAddress = data.roadAddress || data.jibunAddress;
+        setFormData((prev) => ({ ...prev, location: fullAddress }));
 
-    try {
-      const res = await fetch(`/api/map?location=${encodeURIComponent(formData.location)}`);
-      const data = await res.json();
-
-      if (data.success && data.lat && data.lon) {
-        setShowInteractiveMap(true);
-        setTimeout(() => {
-          // ⭐ [핵심 수정] 서버에서 찾은 실제 주소 좌표로 이동!
-          initInteractiveMap(data.lon, data.lat);
-        }, 100);
-      } else {
-        alert('주소를 찾을 수 없습니다. 도로명이나 지번을 정확히 입력해 주세요.');
-      }
-    } catch (e) {
-      console.error(e);
-      alert('지도 검색 중 오류가 발생했습니다.');
-    } finally {
-      setIsMapLoading(false);
-    }
+        // 선택한 카카오 공식 주소를 기반으로 정확한 좌표 추출
+        fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent('대한민국 ' + fullAddress)}&limit=1`, {
+          headers: { 'User-Agent': 'SamchullySafetyApp/1.0' },
+        })
+          .then((res) => res.json())
+          .then((geoData) => {
+            let lat = 36.9921;
+            let lon = 127.1128;
+            if (geoData && geoData.length > 0) {
+              lat = parseFloat(geoData[0].lat);
+              lon = parseFloat(geoData[0].lon);
+            }
+            setShowInteractiveMap(true);
+            setTimeout(() => {
+              initInteractiveMap(lon, lat);
+            }, 100);
+          })
+          .catch(() => {
+            setShowInteractiveMap(true);
+            setTimeout(() => {
+              initInteractiveMap(127.1128, 36.9921);
+            }, 100);
+          });
+      },
+    }).open();
   };
 
-  // 📸 현재 화면 캡처
+  // 📸 현재 조정한 지도를 엑셀 저장용으로 캡처
   const handleCaptureCurrentMap = () => {
     if (!olMapRef.current) return;
 
@@ -254,6 +269,7 @@ export default function SafetyInvestmentApp() {
 
       ctx.setTransform(1, 0, 0, 1, 0, 0);
 
+      // 🔴 빨간 타겟 마커
       ctx.beginPath();
       ctx.arc(targetX, targetY, width * 0.03, 0, 2 * Math.PI);
       ctx.fillStyle = 'rgba(239, 68, 68, 0.35)';
@@ -267,9 +283,10 @@ export default function SafetyInvestmentApp() {
       ctx.fillStyle = '#dc2626';
       ctx.fill();
 
+      // 📍 주소 라벨
       if (formData.location) {
         ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-        ctx.fillRect(15, 15, width * 0.6, 42);
+        ctx.fillRect(15, 15, width * 0.65, 42);
         ctx.font = 'bold 18px "맑은 고딕", sans-serif';
         ctx.fillStyle = '#ffffff';
         ctx.fillText(`📍 위치: ${formData.location}`, 25, 42);
@@ -714,32 +731,32 @@ export default function SafetyInvestmentApp() {
 
           <div>
             <label className="text-xs font-bold text-gray-600 block mb-1">설치장소 (주소)</label>
-            <input 
-              type="text" 
-              value={formData.location} 
-              onChange={e => setFormData({ ...formData, location: e.target.value })} 
-              placeholder="예: 서동대로 3948 또는 용이동 710" 
-              className="w-full p-2.5 bg-slate-50 border rounded-xl text-sm font-semibold outline-none focus:border-blue-500" 
-            />
+            <div className="flex gap-2">
+              <input 
+                type="text" 
+                value={formData.location} 
+                readOnly
+                placeholder="주소 검색 버튼을 눌러 정확한 위치를 선택해 주세요." 
+                className="w-full p-2.5 bg-slate-100 border rounded-xl text-sm font-semibold outline-none text-slate-800" 
+              />
+              <button
+                type="button"
+                onClick={handleOpenDaumPostcode}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 rounded-xl shadow-sm whitespace-nowrap"
+              >
+                🔍 주소 검색
+              </button>
+            </div>
           </div>
 
-          {/* ⚡ 스마트 정밀 지도 구역 */}
+          {/* ⚡ 카카오 내장 지도 구역 */}
           <div className="border border-blue-200 rounded-2xl p-4 bg-blue-50/40 space-y-3">
             <div className="flex justify-between items-center">
               <div>
-                <span className="text-xs font-bold text-blue-900 block">🗺️ 위치도 정밀 지도</span>
-                <span className="text-[10px] text-gray-500">주소 입력 후 아래 버튼을 터치하세요. (마우스 휠 줌/드래그 지원)</span>
+                <span className="text-xs font-bold text-blue-900 block">🗺️ 위치도 스마트 지도</span>
+                <span className="text-[10px] text-gray-500">주소 선택 후 마우스 휠로 확대/축소 및 위치를 맞춰보세요.</span>
               </div>
             </div>
-
-            <button
-              type="button"
-              onClick={handleAutoGenerateMap}
-              disabled={isMapLoading}
-              className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold py-3 px-4 rounded-xl shadow-sm transition flex items-center justify-center gap-2 text-xs"
-            >
-              {isMapLoading ? '⏳ 주소 정밀 검색 중...' : '⚡ 주소 정밀 검색 및 지도 조작 화면 열기'}
-            </button>
 
             {showInteractiveMap && (
               <div className="space-y-2 pt-1">
