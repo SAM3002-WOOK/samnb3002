@@ -84,6 +84,33 @@ export default function SafetyInvestmentApp() {
     }
   }, []);
 
+  // 📋 글로벌 붙여넣기 감지
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const clipboardItems = e.clipboardData?.items;
+      if (!clipboardItems) return;
+
+      for (let i = 0; i < clipboardItems.length; i++) {
+        const item = clipboardItems[i];
+        if (item.type.indexOf('image') !== -1) {
+          const blob = item.getAsFile();
+          if (blob) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const base64Img = reader.result as string;
+              setRawMapImage(base64Img);
+              generateMarkedImage(base64Img, 50, 50);
+            };
+            reader.readAsDataURL(blob);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [formData.location]);
+
   useEffect(() => {
     if (!isLoaded) return;
     try {
@@ -146,35 +173,7 @@ export default function SafetyInvestmentApp() {
     window.open(naverUrl, '_blank');
   };
 
-  // 📋 클립보드 복사본 바로 붙여넣기 (Ctrl+V)
-  const handlePasteClipboard = async () => {
-    try {
-      if (!navigator.clipboard || !navigator.clipboard.read) {
-        alert('브라우저 권한상 클립보드 읽기를 지원하지 않습니다. 파일 첨부를 이용해 주세요.');
-        return;
-      }
-      const clipboardItems = await navigator.clipboard.read();
-      for (const item of clipboardItems) {
-        const imageType = item.types.find((type) => type.startsWith('image/'));
-        if (imageType) {
-          const blob = await item.getType(imageType);
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const base64Img = reader.result as string;
-            setRawMapImage(base64Img);
-            generateMarkedImage(base64Img, 50, 50);
-          };
-          reader.readAsDataURL(blob);
-          return;
-        }
-      }
-      alert('클립보드에 복사된 이미지(캡처본)가 없습니다.');
-    } catch (e) {
-      alert('클립보드 접근 권한이 거부되었습니다. 아래 사진 첨부 버튼을 이용해 주세요.');
-    }
-  };
-
-  // 📸 수동 사진 파일 선택
+  // 📸 캡처 사진 파일 첨부
   const handleMapImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -198,7 +197,7 @@ export default function SafetyInvestmentApp() {
     generateMarkedImage(rawMapImage, xPercent, yPercent);
   };
 
-  // Canvas 합성
+  // Canvas 마커 합성
   const generateMarkedImage = (sourceImgSrc: string, xPct: number, yPct: number) => {
     const img = new Image();
     img.crossOrigin = 'Anonymous';
@@ -675,45 +674,35 @@ export default function SafetyInvestmentApp() {
             </div>
           </div>
 
-          {/* ⚡ 위치도 등록 구역 (클립보드 붙여넣기 + 파일 첨부) */}
+          {/* ⚡ 모바일 최적화 원터치 지도 첨부 구역 */}
           <div className="border border-blue-200 rounded-2xl p-4 bg-blue-50/40 space-y-3">
             <div className="flex justify-between items-center">
               <div>
-                <span className="text-xs font-bold text-blue-900 block">🗺️ 위치도 지도 첨부</span>
-                <span className="text-[10px] text-gray-500">네이버 지도에서 캡처 후 아래 버튼을 클릭하여 등록하세요.</span>
+                <span className="text-xs font-bold text-blue-900 block">🗺️ 위치도 지도 등록</span>
+                <span className="text-[10px] text-gray-500">네이버 지도 스크린샷 후 아래 버튼을 누르면 바로 선택됩니다.</span>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={handlePasteClipboard}
-                className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-3 rounded-xl shadow-sm text-xs transition flex items-center justify-center gap-1"
+            <div>
+              <input 
+                type="file" 
+                accept="image/*" 
+                onChange={handleMapImageUpload} 
+                className="hidden" 
+                id="map-file-upload" 
+              />
+              <label 
+                htmlFor="map-file-upload" 
+                className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-4 rounded-xl shadow-md text-xs transition flex items-center justify-center gap-2 text-center"
               >
-                📋 캡처본 바로 붙여넣기
-              </button>
-
-              <div>
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  onChange={handleMapImageUpload} 
-                  className="hidden" 
-                  id="map-file-upload" 
-                />
-                <label 
-                  htmlFor="map-file-upload" 
-                  className="cursor-pointer bg-slate-700 hover:bg-slate-800 text-white font-bold py-3 px-3 rounded-xl shadow-sm text-xs transition flex items-center justify-center gap-1 block text-center"
-                >
-                  📸 캡처 사진 파일 첨부
-                </label>
-              </div>
+                📸 캡처한 지도 사진 선택 (갤러리 최상단)
+              </label>
             </div>
 
             {markedMapImage && (
               <div className="space-y-1.5 pt-2 border-t border-blue-100">
                 <span className="text-[11px] font-bold text-blue-700 block">
-                  👉 사진 위를 터치하여 🔴 마커 위치를 정밀하게 맞출 수 있습니다.
+                  👉 사진 위 원하는 위치를 터치하면 🔴 마커 위치가 정밀하게 이동합니다.
                 </span>
                 <div 
                   onClick={handleMapClick}
