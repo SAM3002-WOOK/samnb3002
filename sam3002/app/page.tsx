@@ -1,7 +1,8 @@
 // @ts-nocheck
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import html2canvas from 'html2canvas';
 
 export default function SafetyInvestmentApp() {
   const [formData, setFormData] = useState({
@@ -22,6 +23,9 @@ export default function SafetyInvestmentApp() {
   const [items, setItems] = useState<any[]>([]);
   const [isExporting, setIsExporting] = useState(false);
 
+  // 🗺️ 지도 엘리먼트 참조
+  const mapRef = useRef<HTMLDivElement>(null);
+
   // 🔍 지도 확대 / 축소
   const handleZoomIn = () => setZoomLevel((prev) => Math.min(prev + 1, 20));
   const handleZoomOut = () => setZoomLevel((prev) => Math.max(prev - 1, 12));
@@ -34,14 +38,29 @@ export default function SafetyInvestmentApp() {
     setMarkerPos({ x: xPercent, y: yPercent });
   };
 
-  // 🌐 Google Maps 외부 창 열기
-  const handleOpenGoogleMaps = () => {
+  // 📸 [화면 그대로 캡처] html2canvas 방식
+  const handleCaptureMap = async () => {
     if (!formData.location) {
       alert('설치장소(주소)를 먼저 입력해 주세요.');
       return;
     }
-    const googleUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(formData.location)}`;
-    window.open(googleUrl, '_blank');
+
+    if (!mapRef.current) return;
+
+    try {
+      // 화면에 그려진 지도 박스 요소를 그대로 캡처
+      const canvas = await html2canvas(mapRef.current, {
+        useCORS: true,
+        allowTaint: true,
+        scale: 2, // 고화질
+      });
+
+      const mapDataUrl = canvas.toDataURL('image/png');
+      setCapturedMapImg(mapDataUrl);
+      alert('📸 화면에 보이는 위치도가 그대로 캡처되었습니다! (엑셀에 자동 저장됩니다)');
+    } catch {
+      alert('캡처 중 오류가 발생했습니다. 다시 시도해 주세요.');
+    }
   };
 
   // 📸 현장 사진 첨부
@@ -56,111 +75,6 @@ export default function SafetyInvestmentApp() {
     }
   };
 
-  // 📸 100% 확실하게 지도를 그리는 Canvas 캡처 로직 (Geocoding 연동)
-  const handleCaptureMap = async () => {
-    if (!formData.location) {
-      alert('설치장소(주소)를 먼저 입력해 주세요.');
-      return;
-    }
-
-    const canvas = document.createElement('canvas');
-    canvas.width = 800;
-    canvas.height = 500;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    try {
-      // 1. 주소 -> 위도/경도(Lat/Lon) 무료 지오코딩 API 호출
-      const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(formData.location)}`);
-      const geoData = await geoRes.json();
-
-      let lat = 37.0385; // 기본값 (안성/평택 인근)
-      let lon = 127.0545;
-
-      if (geoData && geoData.length > 0) {
-        lat = parseFloat(geoData[0].lat);
-        lon = parseFloat(geoData[0].lon);
-      }
-
-      // 2. 카카오/공공 스태틱 타일 이미지 렌더링
-      const img = new Image();
-      img.crossOrigin = 'Anonymous';
-      
-      // 구글/OSM 스태틱 타일 맵
-      img.src = `https://maps.geoapify.com/v1/staticmap?style=osm-bright&width=800&height=500&center=lonlat:${lon},${lat}&zoom=${zoomLevel}&apiKey=d16ce9485f7a469a9108c35d460e3f84`;
-
-      img.onload = () => {
-        ctx.drawImage(img, 0, 0, 800, 500);
-        drawMarkerAndText(ctx);
-      };
-
-      img.onerror = () => {
-        // 백업 맵 이미지 (공공 카카오 타일 맵)
-        const backupImg = new Image();
-        backupImg.crossOrigin = 'Anonymous';
-        backupImg.src = `https://api.vworld.kr/req/image?service=image&request=getmap&key=9280E16C-3294-3D6B-8C4E-798835821C8D&format=png&basemap=GRAPHIC&center=${lon},${lat}&level=${zoomLevel}&crs=epsg:4326&size=800,500`;
-
-        backupImg.onload = () => {
-          ctx.drawImage(backupImg, 0, 0, 800, 500);
-          drawMarkerAndText(ctx);
-        };
-
-        backupImg.onerror = () => {
-          // 최후 예외 모드 (그리드 스타일 지도)
-          drawFallbackMap(ctx);
-        };
-      };
-    } catch {
-      drawFallbackMap(ctx);
-    }
-
-    function drawMarkerAndText(context: CanvasRenderingContext2D) {
-      const targetX = (markerPos.x / 100) * 800;
-      const targetY = (markerPos.y / 100) * 500;
-
-      // 🔴 빨간 동그라미 마커 그려넣기
-      context.beginPath();
-      context.arc(targetX, targetY, 22, 0, 2 * Math.PI);
-      context.fillStyle = 'rgba(239, 68, 68, 0.35)';
-      context.fill();
-      context.lineWidth = 4;
-      context.strokeStyle = '#ef4444';
-      context.stroke();
-
-      context.beginPath();
-      context.arc(targetX, targetY, 7, 0, 2 * Math.PI);
-      context.fillStyle = '#dc2626';
-      context.fill();
-
-      // 주소 표기 라벨
-      context.fillStyle = 'rgba(15, 23, 42, 0.85)';
-      context.fillRect(15, 15, 480, 38);
-      context.font = 'bold 16px "맑은 고딕", sans-serif';
-      context.fillStyle = '#ffffff';
-      context.fillText(`📍 위치: ${formData.location}`, 25, 40);
-
-      setCapturedMapImg(canvas.toDataURL('image/png'));
-      alert('📸 지도와 위치가 성공적으로 캡처되어 엑셀에 반영됩니다!');
-    }
-
-    function drawFallbackMap(context: CanvasRenderingContext2D) {
-      context.fillStyle = '#e2e8f0';
-      context.fillRect(0, 0, 800, 500);
-      
-      // 도로/격자 패턴 흉내
-      context.strokeStyle = '#cbd5e1';
-      context.lineWidth = 2;
-      for (let x = 0; x < 800; x += 80) {
-        context.beginPath(); context.moveTo(x, 0); context.lineTo(x, 500); context.stroke();
-      }
-      for (let y = 0; y < 500; y += 80) {
-        context.beginPath(); context.moveTo(0, y); context.lineTo(800, y); context.stroke();
-      }
-
-      drawMarkerAndText(context);
-    }
-  };
-
   // ➕ 목록 추가
   const handleAddToList = async () => {
     if (!formData.facilityNo || !formData.facilityName || !formData.location) {
@@ -169,23 +83,12 @@ export default function SafetyInvestmentApp() {
     }
 
     let finalMapImg = capturedMapImg;
-    if (!finalMapImg) {
-      const canvas = document.createElement('canvas');
-      canvas.width = 800;
-      canvas.height = 500;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = '#f8fafc';
-        ctx.fillRect(0, 0, 800, 500);
-        ctx.strokeStyle = '#2563eb';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(10, 10, 780, 480);
-
-        ctx.font = 'bold 18px "맑은 고딕", sans-serif';
-        ctx.fillStyle = '#1e293b';
-        ctx.textAlign = 'center';
-        ctx.fillText(`📍 위치: ${formData.location}`, 400, 250);
+    if (!finalMapImg && mapRef.current) {
+      try {
+        const canvas = await html2canvas(mapRef.current, { useCORS: true, allowTaint: true });
         finalMapImg = canvas.toDataURL('image/png');
+      } catch {
+        // fallback
       }
     }
 
@@ -445,6 +348,7 @@ export default function SafetyInvestmentApp() {
           }
         }
 
+        // 🖼️ B6:H35에 화면 캡처본 정확히 부착
         if (item.mapImage) {
           const mapImgId = workbook.addImage({
             base64: item.mapImage,
@@ -576,15 +480,15 @@ export default function SafetyInvestmentApp() {
               type="text" 
               value={formData.location} 
               onChange={e => setFormData({ ...formData, location: e.target.value })} 
-              placeholder="예: 고덕로 191" 
+              placeholder="예: 용이동 710" 
               className="w-full p-2.5 bg-slate-50 border rounded-xl text-sm font-semibold outline-none focus:border-blue-500" 
             />
             <span className="text-[10px] text-blue-600 font-medium mt-1 block">
-              💡 지도 터치 후 <b>[📸 위치도 캡처]</b>를 누르면 고화질 지도가 엑셀로 들어갑니다.
+              💡 아래 화면의 지도 박스를 맞춘 후 <b>[📸 현재 화면 그대로 캡처]</b>를 눌러주세요.
             </span>
           </div>
 
-          {/* 지도 상자 */}
+          {/* 🎯 화면 캡처 대상 영역 (mapRef) */}
           <div className="border border-slate-200 rounded-2xl p-3 bg-slate-50 space-y-2">
             <div className="flex flex-wrap justify-between items-center gap-1.5">
               <span className="text-xs font-bold text-slate-800">🗺️ 터치로 🔴 위치 지정</span>
@@ -605,24 +509,19 @@ export default function SafetyInvestmentApp() {
                 </button>
                 <button 
                   type="button" 
-                  onClick={handleOpenGoogleMaps} 
-                  className="bg-slate-800 text-white text-xs px-2.5 py-1 rounded-lg font-bold hover:bg-black shadow-sm flex items-center gap-0.5"
-                >
-                  🗺️ 외부구글지도
-                </button>
-                <button 
-                  type="button" 
                   onClick={handleCaptureMap} 
                   className="bg-blue-600 text-white text-xs px-2.5 py-1 rounded-lg font-bold hover:bg-blue-700 shadow-md flex items-center gap-0.5"
                 >
-                  📸 위치도 캡처
+                  📸 현재 화면 그대로 캡처
                 </button>
               </div>
             </div>
 
+            {/* 화면 그대로 캡처되는 프레임 */}
             <div 
+              ref={mapRef}
               onClick={handleMapClick}
-              className="relative w-full h-60 rounded-xl overflow-hidden border border-slate-300 cursor-pointer shadow-inner bg-slate-200"
+              className="relative w-full h-64 rounded-xl overflow-hidden border border-slate-300 cursor-pointer shadow-inner bg-slate-200"
             >
               <iframe
                 title="지도 미리보기"
@@ -630,7 +529,7 @@ export default function SafetyInvestmentApp() {
                 height="100%"
                 loading="lazy"
                 style={{ border: 0, pointerEvents: 'none' }}
-                src={`https://maps.google.com/maps?q=${encodeURIComponent(formData.location || '고덕로 191')}&t=&z=${zoomLevel}&ie=UTF8&iwloc=&output=embed`}
+                src={`https://maps.google.com/maps?q=${encodeURIComponent(formData.location || '용이동 710')}&t=&z=${zoomLevel}&ie=UTF8&iwloc=&output=embed`}
               />
 
               <div 
@@ -641,11 +540,17 @@ export default function SafetyInvestmentApp() {
                   <div className="w-3 h-3 rounded-full bg-red-600 shadow-md" />
                 </div>
               </div>
+
+              {formData.location && (
+                <div className="absolute top-2 left-2 bg-slate-900/80 text-white px-3 py-1 rounded-lg text-xs font-bold z-20">
+                  📍 위치: {formData.location}
+                </div>
+              )}
             </div>
 
             {capturedMapImg && (
               <span className="text-[11px] font-bold text-emerald-600 block text-right">
-                ✅ 위치도 캡처 완료! (엑셀 B6:H35 영역 자동 삽입)
+                ✅ 현재 화면 캡처 완료! (엑셀 B6:H35 영역에 들어갑니다)
               </span>
             )}
           </div>
