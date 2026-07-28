@@ -35,6 +35,7 @@ const INVESTMENT_DATA = {
 };
 
 const STORAGE_KEY = 'samchully_safety_items_v1';
+const WRITER_KEY = 'samchully_writer_name_v1';
 const EXPIRATION_MS = 48 * 60 * 60 * 1000; // 48시간 보관
 
 export default function SafetyInvestmentApp() {
@@ -59,9 +60,16 @@ export default function SafetyInvestmentApp() {
   const [isExporting, setIsExporting] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // 💾 1. 앱 켜질 때 브라우저 저장소에서 데이터 복구 (48시간 유효검사)
+  // 👤 1. 작성자 이름 자동 저장/복구 및 리스트 복구
   useEffect(() => {
     try {
+      // 작성자 이름 복구
+      const savedWriter = localStorage.getItem(WRITER_KEY);
+      if (savedWriter) {
+        setFormData((prev) => ({ ...prev, writer: savedWriter }));
+      }
+
+      // 등록 리스트 복구 (48시간 유효검사)
       const savedData = localStorage.getItem(STORAGE_KEY);
       if (savedData) {
         const parsed = JSON.parse(savedData);
@@ -99,6 +107,18 @@ export default function SafetyInvestmentApp() {
       console.error('로컬 데이터 저장 실패', e);
     }
   }, [items, isLoaded]);
+
+  // 👤 작성자 이름 변경 시 자동 기억
+  const handleWriterChange = (val: string) => {
+    setFormData((prev) => ({ ...prev, writer: val }));
+    try {
+      if (val) {
+        localStorage.setItem(WRITER_KEY, val);
+      }
+    } catch (e) {
+      console.error('작성자 저장 실패', e);
+    }
+  };
 
   // 🔄 시설물 변경 시 작업명 및 세부내역 자동 갱신
   useEffect(() => {
@@ -241,14 +261,14 @@ export default function SafetyInvestmentApp() {
       workName: '도색',
       detailWork: '전체 도색',
       reason: '',
-      writer: formData.writer,
+      writer: formData.writer, // 작성자 이름 자동 유지!
       remark: '',
     });
     setRawMapImage(null);
     setMarkedMapImage(null);
     setFullImage(null);
     setDetailImage(null);
-    alert('목록에 성공적으로 추가되었습니다! (자동 저장됨)');
+    alert('목록에 성공적으로 추가되었습니다!');
   };
 
   // 🗑️ 등록 목록 개별 삭제 기능
@@ -589,11 +609,16 @@ export default function SafetyInvestmentApp() {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-bold text-gray-600 block mb-1">작성자</label>
+              <div className="flex justify-between items-center mb-1">
+                <label className="text-xs font-bold text-gray-600">작성자</label>
+                {formData.writer && (
+                  <span className="text-[10px] text-blue-600 font-bold">👤 자동 기억됨</span>
+                )}
+              </div>
               <input 
                 type="text" 
                 value={formData.writer} 
-                onChange={e => setFormData({ ...formData, writer: e.target.value })} 
+                onChange={e => handleWriterChange(e.target.value)} 
                 placeholder="성명" 
                 className="w-full p-2.5 bg-slate-50 border rounded-xl text-sm font-semibold outline-none focus:border-blue-500" 
               />
@@ -762,7 +787,7 @@ export default function SafetyInvestmentApp() {
           </button>
         </div>
 
-        {/* 📊 등록 목록 섹션 (제목 옆 48시간 안내문구 적용) */}
+        {/* 📊 등록 목록 섹션 */}
         <div className="bg-white p-6 rounded-3xl shadow-md border border-slate-200 space-y-4">
           <div className="flex justify-between items-center border-b pb-2">
             <div>
