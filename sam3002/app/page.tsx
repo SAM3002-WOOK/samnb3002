@@ -1,7 +1,7 @@
 // @ts-nocheck
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 // 📊 [투자 내역 참고 자료] 마스터 데이터 정의
 const INVESTMENT_DATA = {
@@ -53,13 +53,35 @@ export default function SafetyInvestmentApp() {
 
   const [rawMapImage, setRawMapImage] = useState<string | null>(null);
   const [markedMapImage, setMarkedMapImage] = useState<string | null>(null);
-  const [markerPos, setMarkerPos] = useState({ x: 50, y: 50 });
   const [fullImage, setFullImage] = useState<string | null>(null);
   const [detailImage, setDetailImage] = useState<string | null>(null);
   const [items, setItems] = useState<any[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [isMapLoading, setIsMapLoading] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
+
+  // 🗺️ 스마트 대화형 지도 관련 Ref & State
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const olMapRef = useRef<any>(null);
+  const [mapCenter, setMapCenter] = useState<[number, number]>([127.1128, 36.9921]);
+  const [showInteractiveMap, setShowInteractiveMap] = useState(false);
+
+  // OpenLayers 스크립트 dynamic 로드
+  useEffect(() => {
+    if (!document.getElementById('ol-css')) {
+      const link = document.createElement('link');
+      link.id = 'ol-css';
+      link.rel = 'stylesheet';
+      link.href = 'https://cdn.jsdelivr.net/npm/ol@v8.2.0/ol.css';
+      document.head.appendChild(link);
+    }
+    if (!document.getElementById('ol-js')) {
+      const script = document.createElement('script');
+      script.id = 'ol-js';
+      script.src = 'https://cdn.jsdelivr.net/npm/ol@v8.2.0/dist/ol.js';
+      document.head.appendChild(script);
+    }
+  }, []);
 
   // 👤 1. 작성자 이름 및 목록 복구
   useEffect(() => {
@@ -107,7 +129,6 @@ export default function SafetyInvestmentApp() {
     }
   }, [items, isLoaded]);
 
-  // 👤 작성자 자동 기억
   const handleWriterChange = (val: string) => {
     setFormData((prev) => ({ ...prev, writer: val }));
     try {
@@ -117,7 +138,6 @@ export default function SafetyInvestmentApp() {
     }
   };
 
-  // 🔄 시설물 변경 시 자동 갱신
   useEffect(() => {
     const availableWorks = Object.keys(INVESTMENT_DATA[formData.category] || {});
     const firstWork = availableWorks[0] || '';
@@ -142,89 +162,37 @@ export default function SafetyInvestmentApp() {
     }));
   };
 
-  // 🎨 [핵심] 초고속 CartoDB 렌더링 엔진 (CORS 100% 안전)
-  const renderMapCanvas = async (lat: number, lon: number, locationName: string) => {
-    const zoom = 16;
-    const width = 800;
-    const height = 500;
+  // 🗺️ 대화형 지도 초기화 (마우스 휠 줌 & 드래그 가능)
+  const initInteractiveMap = (lon: number, lat: number) => {
+    if (!mapContainerRef.current || !window.ol) return;
 
-    const latRad = (lat * Math.PI) / 180;
-    const n = Math.pow(2, zoom);
-    const centerX = ((lon + 180) / 360) * n * 256;
-    const centerY =
-      ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) *
-      n *
-      256;
-
-    const startX = centerX - width / 2;
-    const startY = centerY - height / 2;
-
-    const minTileX = Math.floor(startX / 256);
-    const maxTileX = Math.floor((startX + width) / 256);
-    const minTileY = Math.floor(startY / 256);
-    const maxTileY = Math.floor((startY + height) / 256);
-
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-
-    ctx.fillStyle = '#f1f5f9';
-    ctx.fillRect(0, 0, width, height);
-
-    const tilePromises: Promise<void>[] = [];
-
-    for (let tx = minTileX; tx <= maxTileX; tx++) {
-      for (let ty = minTileY; ty <= maxTileY; ty++) {
-        const tileUrl = `https://basemaps.cartocdn.com/rastertiles/voyager/${zoom}/${tx}/${ty}.png`;
-        const p = new Promise<void>((resolve) => {
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-          img.onload = () => {
-            const dx = tx * 256 - startX;
-            const dy = ty * 256 - startY;
-            ctx.drawImage(img, dx, dy, 256, 256);
-            resolve();
-          };
-          img.onerror = () => resolve();
-          img.src = tileUrl;
-        });
-        tilePromises.push(p);
-      }
+    if (olMapRef.current) {
+      olMapRef.current.setTarget(null);
+      olMapRef.current = null;
     }
 
-    await Promise.all(tilePromises);
+    const map = new window.ol.Map({
+      target: mapContainerRef.current,
+      layers: [
+        new window.ol.layer.Tile({
+          source: new window.ol.source.XYZ({
+            url: 'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+            crossOrigin: 'anonymous',
+          }),
+        }),
+      ],
+      view: new window.ol.View({
+        center: window.ol.proj.fromLonLat([lon, lat]),
+        zoom: 17,
+        maxZoom: 19,
+        minZoom: 12,
+      }),
+    });
 
-    // 🔴 마커 생성
-    const targetX = width / 2;
-    const targetY = height / 2;
-
-    ctx.beginPath();
-    ctx.arc(targetX, targetY, width * 0.03, 0, 2 * Math.PI);
-    ctx.fillStyle = 'rgba(239, 68, 68, 0.35)';
-    ctx.fill();
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = '#ef4444';
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(targetX, targetY, width * 0.01, 0, 2 * Math.PI);
-    ctx.fillStyle = '#dc2626';
-    ctx.fill();
-
-    if (locationName) {
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-      ctx.fillRect(15, 15, width * 0.6, 42);
-      ctx.font = 'bold 18px "맑은 고딕", sans-serif';
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(`📍 위치: ${locationName}`, 25, 42);
-    }
-
-    return canvas.toDataURL('image/png');
+    olMapRef.current = map;
   };
 
-  // ⚡ 주소 기반 위치도 자동 생성
+  // ⚡ 주소 정밀 지오코딩 및 지도 생성
   const handleAutoGenerateMap = async () => {
     if (!formData.location) {
       alert('설치장소(주소)를 먼저 입력해 주세요.');
@@ -238,27 +206,92 @@ export default function SafetyInvestmentApp() {
       const data = await res.json();
 
       if (data.success && data.lat && data.lon) {
-        const base64Image = await renderMapCanvas(data.lat, data.lon, formData.location);
-        if (base64Image) {
-          setRawMapImage(base64Image);
-          setMarkedMapImage(base64Image);
-          setMarkerPos({ x: 50, y: 50 });
-          alert('✨ 위치도 지도가 성공적으로 자동 생성되었습니다!');
-        } else {
-          alert('지도 이미지 합성 실패. 백업 수동 첨부를 이용해 주세요.');
-        }
+        setMapCenter([data.lon, data.lat]);
+        setShowInteractiveMap(true);
+
+        setTimeout(() => {
+          initInteractiveMap(data.lon, data.lat);
+        }, 100);
+
+        alert('✨ 네이버/카카오 연동 지도 검색 완료!\n마우스 휠로 확대/축소 및 드래그하여 정확한 위치를 정해 보세요.');
       } else {
-        alert('지도를 찾을 수 없습니다. 설치장소(주소)를 확인해 주세요.');
+        alert('주소를 정확히 찾지 못했습니다. 도로명/지번을 확인해 보세요.');
       }
     } catch (e) {
       console.error(e);
-      alert('지도 생성 중 오류가 발생했습니다.');
+      alert('지도 검색 중 오류가 발생했습니다.');
     } finally {
       setIsMapLoading(false);
     }
   };
 
-  // 📸 수동 캡처본 사진 첨부
+  // 📸 현재 확대/축소 상태 그대로 엑셀용 이미지 캡처
+  const handleCaptureCurrentMap = () => {
+    if (!olMapRef.current) return;
+
+    olMapRef.current.once('rendercomplete', () => {
+      const mapCanvas = document.createElement('canvas');
+      const size = olMapRef.current.getSize();
+      mapCanvas.width = size[0];
+      mapCanvas.height = size[1];
+      const mapContext = mapCanvas.getContext('2d');
+
+      Array.prototype.forEach.call(
+        mapContainerRef.current.querySelectorAll('.ol-layer canvas'),
+        (canvas) => {
+          if (canvas.width > 0) {
+            const opacity = canvas.parentNode.style.opacity;
+            mapContext.globalAlpha = opacity === '' ? 1 : Number(opacity);
+            const transform = canvas.style.transform;
+            const matrix = transform
+              .match(/^matrix\(([^\(]*)\)$/)[1]
+              .split(',')
+              .map(Number);
+            mapContext.setTransform(matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5]);
+            mapContext.drawImage(canvas, 0, 0);
+          }
+        }
+      );
+
+      // 🔴 중앙 마커 및 라벨 합성
+      const ctx = mapCanvas.getContext('2d');
+      const width = mapCanvas.width;
+      const height = mapCanvas.height;
+      const targetX = width / 2;
+      const targetY = height / 2;
+
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+      ctx.beginPath();
+      ctx.arc(targetX, targetY, width * 0.03, 0, 2 * Math.PI);
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.35)';
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#ef4444';
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(targetX, targetY, width * 0.01, 0, 2 * Math.PI);
+      ctx.fillStyle = '#dc2626';
+      ctx.fill();
+
+      if (formData.location) {
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+        ctx.fillRect(15, 15, width * 0.6, 42);
+        ctx.font = 'bold 18px "맑은 고딕", sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(`📍 위치: ${formData.location}`, 25, 42);
+      }
+
+      const finalDataUrl = mapCanvas.toDataURL('image/png');
+      setMarkedMapImage(finalDataUrl);
+      setRawMapImage(finalDataUrl);
+      alert('📸 현재 확대 비율과 화면이 성공적으로 캡처되었습니다!');
+    });
+
+    olMapRef.current.renderSync();
+  };
+
   const handleMapImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -266,62 +299,10 @@ export default function SafetyInvestmentApp() {
       reader.onloadend = () => {
         const base64Img = reader.result as string;
         setRawMapImage(base64Img);
-        generateMarkedImage(base64Img, 50, 50);
+        setMarkedMapImage(base64Img);
       };
       reader.readAsDataURL(file);
     }
-  };
-
-  // 🔴 마커 이동 터치
-  const handleMapClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!rawMapImage) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const xPercent = ((e.clientX - rect.left) / rect.width) * 100;
-    const yPercent = ((e.clientY - rect.top) / rect.height) * 100;
-
-    setMarkerPos({ x: xPercent, y: yPercent });
-    generateMarkedImage(rawMapImage, xPercent, yPercent);
-  };
-
-  const generateMarkedImage = (sourceImgSrc: string, xPct: number, yPct: number) => {
-    const img = new Image();
-    img.crossOrigin = 'Anonymous';
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width || 800;
-      canvas.height = img.height || 500;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-      const targetX = (xPct / 100) * canvas.width;
-      const targetY = (yPct / 100) * canvas.height;
-
-      ctx.beginPath();
-      ctx.arc(targetX, targetY, canvas.width * 0.03, 0, 2 * Math.PI);
-      ctx.fillStyle = 'rgba(239, 68, 68, 0.35)';
-      ctx.fill();
-      ctx.lineWidth = Math.max(3, canvas.width * 0.005);
-      ctx.strokeStyle = '#ef4444';
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.arc(targetX, targetY, canvas.width * 0.01, 0, 2 * Math.PI);
-      ctx.fillStyle = '#dc2626';
-      ctx.fill();
-
-      if (formData.location) {
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-        ctx.fillRect(15, 15, canvas.width * 0.6, 42);
-        ctx.font = 'bold 18px "맑은 고딕", sans-serif';
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(`📍 위치: ${formData.location}`, 25, 42);
-      }
-
-      setMarkedMapImage(canvas.toDataURL('image/png'));
-    };
-    img.src = sourceImgSrc;
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string | null) => void) => {
@@ -365,6 +346,7 @@ export default function SafetyInvestmentApp() {
     });
     setRawMapImage(null);
     setMarkedMapImage(null);
+    setShowInteractiveMap(false);
     setFullImage(null);
     setDetailImage(null);
     alert('목록에 성공적으로 추가되었습니다!');
@@ -383,6 +365,7 @@ export default function SafetyInvestmentApp() {
     }
   };
 
+  // 📊 엑셀 다운로드
   const exportToExcel = async () => {
     if (items.length === 0) {
       alert('다운로드할 데이터가 없습니다.');
@@ -745,17 +728,17 @@ export default function SafetyInvestmentApp() {
               type="text" 
               value={formData.location} 
               onChange={e => setFormData({ ...formData, location: e.target.value })} 
-              placeholder="예: 용이동 710 또는 고덕로 191" 
+              placeholder="예: 서동대로 3948 또는 용이동 710" 
               className="w-full p-2.5 bg-slate-50 border rounded-xl text-sm font-semibold outline-none focus:border-blue-500" 
             />
           </div>
 
-          {/* ⚡ 위치도 자동 생성 구역 */}
+          {/* ⚡ 스마트 대화형 지도 구역 */}
           <div className="border border-blue-200 rounded-2xl p-4 bg-blue-50/40 space-y-3">
             <div className="flex justify-between items-center">
               <div>
-                <span className="text-xs font-bold text-blue-900 block">🗺️ 위치도 지도 등록</span>
-                <span className="text-[10px] text-gray-500">주소 입력 후 아래 버튼을 터치하면 지도가 자동 생성됩니다.</span>
+                <span className="text-xs font-bold text-blue-900 block">🗺️ 위치도 스마트 지도</span>
+                <span className="text-[10px] text-gray-500">주소 입력 후 아래 버튼을 터치하세요. (마우스 휠 줌/드래그 가능)</span>
               </div>
             </div>
 
@@ -765,22 +748,54 @@ export default function SafetyInvestmentApp() {
               disabled={isMapLoading}
               className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold py-3 px-4 rounded-xl shadow-sm transition flex items-center justify-center gap-2 text-xs"
             >
-              {isMapLoading ? '⏳ 서버에서 지도 자동 생성 중...' : '⚡ 주소 기반 위치도 1초 자동 생성'}
+              {isMapLoading ? '⏳ 위치 정밀 검색 중...' : '⚡ 주소 정밀 검색 및 지도 조작 화면 열기'}
             </button>
 
-            {markedMapImage ? (
-              <div className="space-y-1.5 pt-1">
+            {showInteractiveMap && (
+              <div className="space-y-2 pt-1">
                 <span className="text-[11px] font-bold text-blue-700 block">
-                  👉 위치도가 생성되었습니다! 필요시 사진 위를 터치하여 🔴 마커 위치를 이동할 수 있습니다.
+                  👉 <b>마우스 휠로 확대/축소</b> 및 <b>드래그</b>로 원하시는 영역을 맞춘 후 아래 [현재 화면 캡처] 버튼을 누르세요.
                 </span>
-                <div 
-                  onClick={handleMapClick}
-                  className="relative w-full h-64 rounded-xl overflow-hidden border border-slate-300 cursor-pointer shadow-md bg-slate-900 flex items-center justify-center"
+
+                <div className="relative w-full h-72 rounded-2xl overflow-hidden border-2 border-blue-400 shadow-md">
+                  {/* 지도 컨테이너 */}
+                  <div ref={mapContainerRef} className="w-full h-full bg-slate-100" />
+
+                  {/* 중앙 고정 🔴 타겟 마커 및 주소 라벨 */}
+                  <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                    <div className="relative">
+                      <div className="w-8 h-8 rounded-full bg-red-500/30 border-2 border-red-600 animate-ping absolute -translate-x-1/2 -translate-y-1/2" />
+                      <div className="w-4 h-4 rounded-full bg-red-600 border-2 border-white shadow-lg absolute -translate-x-1/2 -translate-y-1/2" />
+                    </div>
+                  </div>
+
+                  <div className="absolute top-3 left-3 bg-slate-900/85 text-white px-3 py-1.5 rounded-xl text-xs font-bold shadow-md">
+                    📍 위치: {formData.location}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleCaptureCurrentMap}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl shadow-sm text-xs transition"
                 >
-                  <img src={markedMapImage} alt="위치도 프리뷰" className="w-full h-full object-contain" />
+                  📸 현재 조정한 지도 영역 캡처 및 엑셀 저장용 지정
+                </button>
+              </div>
+            )}
+
+            {markedMapImage && (
+              <div className="pt-2 border-t border-blue-100">
+                <span className="text-[11px] font-bold text-emerald-700 block mb-1">
+                  ✅ 엑셀에 들어갈 캡처본 프리뷰:
+                </span>
+                <div className="w-full h-48 rounded-xl overflow-hidden border border-emerald-300 shadow-sm bg-slate-900 flex items-center justify-center">
+                  <img src={markedMapImage} alt="캡처 프리뷰" className="w-full h-full object-contain" />
                 </div>
               </div>
-            ) : (
+            )}
+
+            {!showInteractiveMap && (
               <div className="pt-2 border-t border-blue-100 text-center">
                 <input 
                   type="file" 
@@ -799,7 +814,7 @@ export default function SafetyInvestmentApp() {
             )}
           </div>
 
-          {/* 🎯 3단 스마트 연동 드롭다운 */}
+          {/* 🎯 3단 연동 드롭다운 */}
           <div className="space-y-3 pt-2 border-t border-slate-200">
             <div>
               <label className="text-xs font-bold text-blue-900 block mb-1">🏗️ 시설물 선택</label>

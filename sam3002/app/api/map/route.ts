@@ -11,27 +11,25 @@ export async function GET(request: Request) {
 
   try {
     const cleanedLoc = rawLocation.trim();
-    // 동/도로명 단위 추출 (예: "용이동 750-6" -> "용이동")
-    const parts = cleanedLoc.split(' ');
-    const mainDong = parts[0] || cleanedLoc;
-
+    // 카카오/네이버 주소 검색 패턴 대응 다중 후보군
     const searchCandidates = [
       cleanedLoc,
       `대한민국 ${cleanedLoc}`,
-      `대한민국 경기도 ${cleanedLoc}`,
-      `대한민국 ${mainDong}`,
+      `경기도 ${cleanedLoc}`,
+      cleanedLoc.split(' ')[0] + ' ' + (cleanedLoc.split(' ')[1] || ''),
     ];
 
-    let lat = 37.5665;
-    let lon = 126.9780;
+    let lat = 36.9921;
+    let lon = 127.1128;
     let found = false;
 
     for (const query of searchCandidates) {
+      if (!query.trim()) continue;
       try {
-        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`;
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=kr&limit=1`;
         const res = await fetch(url, {
           headers: {
-            'User-Agent': 'SamchullySafetyApp/1.0 (contact@samchully.co.kr)',
+            'User-Agent': 'SamchullySafetyApp/1.0',
             'Accept-Language': 'ko-KR,ko;q=0.9',
           },
         });
@@ -46,7 +44,7 @@ export async function GET(request: Request) {
           }
         }
       } catch (e) {
-        console.warn('Geocode candidate search warning:', query, e);
+        console.warn('Geocode search failed:', query, e);
       }
     }
 
@@ -59,7 +57,6 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     console.error('API Error:', error);
-    // 서버 에러로 튕기지 않고 평택/기본 좌표로 안전 반환
     return NextResponse.json({
       success: true,
       lat: 36.9921,
