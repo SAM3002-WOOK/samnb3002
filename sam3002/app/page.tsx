@@ -14,7 +14,9 @@ export default function SafetyInvestmentApp() {
     remark: '',
   });
 
-  const [mapImage, setMapImage] = useState<string | null>(null); // 위치도 이미지
+  const [rawMapImage, setRawMapImage] = useState<string | null>(null); // 원본 위치도
+  const [markedMapImage, setMarkedMapImage] = useState<string | null>(null); // 마커 합성 위치도
+  const [markerPos, setMarkerPos] = useState({ x: 50, y: 50 }); // 마커 좌표 (%)
   const [fullImage, setFullImage] = useState<string | null>(null); // 전경 사진
   const [detailImage, setDetailImage] = useState<string | null>(null); // 상세 사진
   const [items, setItems] = useState<any[]>([]);
@@ -30,17 +32,78 @@ export default function SafetyInvestmentApp() {
     window.open(naverUrl, '_blank');
   };
 
-  // 🌐 구글 지도 열기
-  const handleOpenGoogleMap = () => {
-    if (!formData.location) {
-      alert('설치장소(주소)를 먼저 입력해 주세요.');
-      return;
+  // 📸 위치도 사진 첨부 및 Canvas 마커 기본 합성
+  const handleMapImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64Img = reader.result as string;
+        setRawMapImage(base64Img);
+        generateMarkedImage(base64Img, 50, 50);
+      };
+      reader.readAsDataURL(file);
     }
-    const googleUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(formData.location)}`;
-    window.open(googleUrl, '_blank');
   };
 
-  // 📸 이미지 파일 첨부 통합 처리
+  // 🔴 위치도 터치 시 빨간 동그라미 마커 그리기
+  const handleMapClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!rawMapImage) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const xPercent = ((e.clientX - rect.left) / rect.width) * 100;
+    const yPercent = ((e.clientY - rect.top) / rect.height) * 100;
+
+    setMarkerPos({ x: xPercent, y: yPercent });
+    generateMarkedImage(rawMapImage, xPercent, yPercent);
+  };
+
+  // 🎨 이미지 위에 🔴 마커 + 📍 주소 라벨 합성
+  const generateMarkedImage = (sourceImgSrc: string, xPct: number, yPct: number) => {
+    const img = new Image();
+    img.crossOrigin = 'Anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width || 800;
+      canvas.height = img.height || 500;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      // 1. 원본 지도 그리기
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      // 2. 마커 위치 계산
+      const targetX = (xPct / 100) * canvas.width;
+      const targetY = (yPct / 100) * canvas.height;
+
+      // 3. 🔴 빨간 원 마커 그리기
+      ctx.beginPath();
+      ctx.arc(targetX, targetY, canvas.width * 0.03, 0, 2 * Math.PI);
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.35)';
+      ctx.fill();
+      ctx.lineWidth = Math.max(3, canvas.width * 0.005);
+      ctx.strokeStyle = '#ef4444';
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(targetX, targetY, canvas.width * 0.01, 0, 2 * Math.PI);
+      ctx.fillStyle = '#dc2626';
+      ctx.fill();
+
+      // 4. 주소 라벨 그려넣기
+      if (formData.location) {
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+        ctx.fillRect(15, 15, canvas.width * 0.55, 42);
+        ctx.font = 'bold 18px "맑은 고딕", sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(`📍 위치: ${formData.location}`, 25, 42);
+      }
+
+      setMarkedMapImage(canvas.toDataURL('image/png'));
+    };
+    img.src = sourceImgSrc;
+  };
+
+  // 📸 현장 사진 첨부 (전경 / 상세)
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string | null) => void) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -63,7 +126,7 @@ export default function SafetyInvestmentApp() {
       id: items.length + 1,
       ...formData,
       date: new Date().toISOString().split('T')[0],
-      mapImage,
+      mapImage: markedMapImage || rawMapImage,
       fullImage,
       detailImage,
     };
@@ -79,7 +142,8 @@ export default function SafetyInvestmentApp() {
       writer: formData.writer,
       remark: '',
     });
-    setMapImage(null);
+    setRawMapImage(null);
+    setMarkedMapImage(null);
     setFullImage(null);
     setDetailImage(null);
     alert('목록에 성공적으로 추가되었습니다!');
@@ -315,7 +379,7 @@ export default function SafetyInvestmentApp() {
           }
         }
 
-        // 🖼️ 캡처한 위치도 이미지를 B6:H35 영역에 삽입
+        // 🖼️ 🔴 마커가 합성된 위치도 이미지를 B6:H35 영역에 삽입
         if (item.mapImage) {
           const mapImgId = workbook.addImage({
             base64: item.mapImage,
@@ -452,38 +516,25 @@ export default function SafetyInvestmentApp() {
             />
           </div>
 
-          {/* 🗺️ 위치도 등록 구역 */}
+          {/* 🗺️ 위치도 등록 & 🔴 마커 표시 구역 */}
           <div className="border border-slate-200 rounded-2xl p-4 bg-slate-50 space-y-3">
-            <span className="text-xs font-bold text-slate-800 block">🗺️ 위치도 등록 (네이버 / 구글 지도)</span>
-
-            {/* 지도 이동 버튼들 */}
-            <div className="grid grid-cols-2 gap-2">
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-bold text-slate-800">🗺️ 네이버 지도 캡처본 등록</span>
               <button 
                 type="button" 
                 onClick={handleOpenNaverMap} 
-                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2.5 px-3 rounded-xl shadow-md flex items-center justify-center gap-1"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-1.5 px-3 rounded-lg shadow-sm"
               >
                 🗺️ 네이버지도 열기
               </button>
-              <button 
-                type="button" 
-                onClick={handleOpenGoogleMap} 
-                className="bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold py-2.5 px-3 rounded-xl shadow-md flex items-center justify-center gap-1"
-              >
-                🗺️ 구글지도 열기
-              </button>
             </div>
 
-            <span className="text-[11px] text-gray-500 block">
-              👉 지도에서 원하는 위치와 확대 비율을 맞추신 후 <b>캡처</b>해 주세요.
-            </span>
-
-            {/* 캡처한 위치도 파일 첨부 버튼 */}
+            {/* 위치도 사진 첨부 버튼 */}
             <div className="border-2 border-dashed border-emerald-300 p-3 rounded-2xl bg-white text-center">
               <input 
                 type="file" 
                 accept="image/*" 
-                onChange={e => handleImageUpload(e, setMapImage)} 
+                onChange={handleMapImageUpload} 
                 className="hidden" 
                 id="map-upload" 
               />
@@ -491,9 +542,24 @@ export default function SafetyInvestmentApp() {
                 htmlFor="map-upload" 
                 className="cursor-pointer bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-xs py-2.5 rounded-xl font-bold block truncate text-emerald-800 shadow-sm"
               >
-                {mapImage ? '✅ 캡처한 위치도 첨부 완료!' : '📸 캡처한 위치도 사진 선택/첨부'}
+                {rawMapImage ? '✅ 위치도 첨부 완료! (아래 사진에서 터치하여 🔴 마커 지정)' : '📸 캡처한 네이버 지도 사진 첨부'}
               </label>
             </div>
+
+            {/* 🔴 마커 표시 터치 상자 */}
+            {markedMapImage && (
+              <div className="space-y-1.5 pt-1">
+                <span className="text-[11px] font-bold text-blue-700 block">
+                  👉 첨부한 사진 위를 터치하시면 🔴 빨간 마커 위치를 이동할 수 있습니다.
+                </span>
+                <div 
+                  onClick={handleMapClick}
+                  className="relative w-full h-64 rounded-xl overflow-hidden border border-slate-300 cursor-pointer shadow-md bg-slate-900 flex items-center justify-center"
+                >
+                  <img src={markedMapImage} alt="위치도 프리뷰" className="w-full h-full object-contain" />
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
