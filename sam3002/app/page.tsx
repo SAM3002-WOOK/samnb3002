@@ -158,7 +158,7 @@ export default function SafetyInvestmentApp() {
     }));
   };
 
-  // 🗺️ 정밀 선명 지도 레이어 초기화
+  // 🗺️ 정밀 지도 초기화 (전달받은 정확한 위도/경도로 시점 이동)
   const initInteractiveMap = (lon: number, lat: number) => {
     if (!mapContainerRef.current || !window.ol) return;
 
@@ -188,7 +188,7 @@ export default function SafetyInvestmentApp() {
     olMapRef.current = map;
   };
 
-  // ⚡ 도로명 정밀 주소 연동 (팝업 알림 100% 제거)
+  // ⚡ 검색 좌표(data.lon, data.lat)를 직접 넘겨주도록 버그 수정!
   const handleAutoGenerateMap = async () => {
     if (!formData.location) {
       alert('설치장소(주소)를 먼저 입력해 주세요.');
@@ -201,22 +201,24 @@ export default function SafetyInvestmentApp() {
       const res = await fetch(`/api/map?location=${encodeURIComponent(formData.location)}`);
       const data = await res.json();
 
-      setShowInteractiveMap(true);
-      setTimeout(() => {
-        initInteractiveMap(data.lon || 127.1128, data.lat || 36.9921);
-      }, 80);
+      if (data.success && data.lat && data.lon) {
+        setShowInteractiveMap(true);
+        setTimeout(() => {
+          // ⭐ [핵심 수정] 서버에서 찾은 실제 주소 좌표로 이동!
+          initInteractiveMap(data.lon, data.lat);
+        }, 100);
+      } else {
+        alert('주소를 찾을 수 없습니다. 도로명이나 지번을 정확히 입력해 주세요.');
+      }
     } catch (e) {
       console.error(e);
-      setShowInteractiveMap(true);
-      setTimeout(() => {
-        initInteractiveMap(127.1128, 36.9921);
-      }, 80);
+      alert('지도 검색 중 오류가 발생했습니다.');
     } finally {
       setIsMapLoading(false);
     }
   };
 
-  // 📸 현재 조정한 화면 그대로 엑셀 저장용 캡처
+  // 📸 현재 화면 캡처
   const handleCaptureCurrentMap = () => {
     if (!olMapRef.current) return;
 
@@ -721,7 +723,7 @@ export default function SafetyInvestmentApp() {
             />
           </div>
 
-          {/* ⚡ 공공 망 기반 지도 구역 */}
+          {/* ⚡ 스마트 정밀 지도 구역 */}
           <div className="border border-blue-200 rounded-2xl p-4 bg-blue-50/40 space-y-3">
             <div className="flex justify-between items-center">
               <div>
@@ -736,7 +738,7 @@ export default function SafetyInvestmentApp() {
               disabled={isMapLoading}
               className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold py-3 px-4 rounded-xl shadow-sm transition flex items-center justify-center gap-2 text-xs"
             >
-              {isMapLoading ? '⏳ 도로명/지번 정밀 검색 중...' : '⚡ 주소 정밀 검색 및 지도 조작 화면 열기'}
+              {isMapLoading ? '⏳ 주소 정밀 검색 중...' : '⚡ 주소 정밀 검색 및 지도 조작 화면 열기'}
             </button>
 
             {showInteractiveMap && (
