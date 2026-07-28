@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from 'react';
 
-// 📊 [투자 내역 참고 자료] 마스터 데이터 정의 (시설물 - 작업명 - 세부내역 연동)
+// 📊 [투자 내역 참고 자료] 마스터 데이터 정의
 const INVESTMENT_DATA = {
   정압기: {
     도색: ['전체 도색', '흡 · 배기 방출관 도색', '출입문 도색', '휠터 1개소 도색', '배관 일부 도색 (50%)', '배관 지지대(서포트) 내화도색', '내부 벽면 도장(바닥제외 5면)', '그 외 견적 시행'],
@@ -36,7 +36,7 @@ const INVESTMENT_DATA = {
 
 const STORAGE_KEY = 'samchully_safety_items_v1';
 const WRITER_KEY = 'samchully_writer_name_v1';
-const EXPIRATION_MS = 48 * 60 * 60 * 1000; // 48시간 보관
+const EXPIRATION_MS = 48 * 60 * 60 * 1000;
 
 export default function SafetyInvestmentApp() {
   const [formData, setFormData] = useState({
@@ -58,18 +58,17 @@ export default function SafetyInvestmentApp() {
   const [detailImage, setDetailImage] = useState<string | null>(null);
   const [items, setItems] = useState<any[]>([]);
   const [isExporting, setIsExporting] = useState(false);
+  const [isMapLoading, setIsMapLoading] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // 👤 1. 작성자 이름 자동 저장/복구 및 리스트 복구
+  // 👤 1. 작성자 이름 및 목록 복구
   useEffect(() => {
     try {
-      // 작성자 이름 복구
       const savedWriter = localStorage.getItem(WRITER_KEY);
       if (savedWriter) {
         setFormData((prev) => ({ ...prev, writer: savedWriter }));
       }
 
-      // 등록 리스트 복구 (48시간 유효검사)
       const savedData = localStorage.getItem(STORAGE_KEY);
       if (savedData) {
         const parsed = JSON.parse(savedData);
@@ -88,7 +87,7 @@ export default function SafetyInvestmentApp() {
     }
   }, []);
 
-  // 💾 2. 목록이 변경될 때마다 브라우저 저장소에 자동 저장
+  // 💾 2. 자동 저장
   useEffect(() => {
     if (!isLoaded) return;
     try {
@@ -108,19 +107,17 @@ export default function SafetyInvestmentApp() {
     }
   }, [items, isLoaded]);
 
-  // 👤 작성자 이름 변경 시 자동 기억
+  // 👤 작성자 자동 기억
   const handleWriterChange = (val: string) => {
     setFormData((prev) => ({ ...prev, writer: val }));
     try {
-      if (val) {
-        localStorage.setItem(WRITER_KEY, val);
-      }
+      if (val) localStorage.setItem(WRITER_KEY, val);
     } catch (e) {
       console.error('작성자 저장 실패', e);
     }
   };
 
-  // 🔄 시설물 변경 시 작업명 및 세부내역 자동 갱신
+  // 🔄 시설물 변경 시 자동 갱신
   useEffect(() => {
     const availableWorks = Object.keys(INVESTMENT_DATA[formData.category] || {});
     const firstWork = availableWorks[0] || '';
@@ -134,7 +131,6 @@ export default function SafetyInvestmentApp() {
     }));
   }, [formData.category]);
 
-  // 🔄 작업명 변경 시 세부내역 자동 갱신
   const handleWorkNameChange = (work: string) => {
     const availableDetails = INVESTMENT_DATA[formData.category]?.[work] || [];
     const firstDetail = availableDetails[0] || '';
@@ -146,17 +142,36 @@ export default function SafetyInvestmentApp() {
     }));
   };
 
-  // 🗺️ 네이버 지도 열기
-  const handleOpenNaverMap = () => {
+  // ⚡ [핵심] 주소 기반 지도 1초 자동 생성 기능 (캡처/업로드 완전 대체!)
+  const handleAutoGenerateMap = async () => {
     if (!formData.location) {
       alert('설치장소(주소)를 먼저 입력해 주세요.');
       return;
     }
-    const naverUrl = `https://map.naver.com/v5/search/${encodeURIComponent(formData.location)}`;
-    window.open(naverUrl, '_blank');
+
+    setIsMapLoading(true);
+
+    try {
+      const res = await fetch(`/api/map?location=${encodeURIComponent(formData.location)}`);
+      const data = await res.json();
+
+      if (data.success && data.base64) {
+        setRawMapImage(data.base64);
+        setMarkerPos({ x: 50, y: 50 });
+        generateMarkedImage(data.base64, 50, 50);
+        alert('✨ 위치도 지도가 자동으로 생성되고 🔴 마커가 지정되었습니다!');
+      } else {
+        alert(data.error || '지도를 자동으로 불러오지 못했습니다. 수동 첨부를 이용해 주세요.');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('지도 생성 중 오류가 발생했습니다.');
+    } finally {
+      setIsMapLoading(false);
+    }
   };
 
-  // 📸 위치도 사진 첨부 및 마커 생성
+  // 📸 수동 캡처본 사진 첨부 (백업용)
   const handleMapImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -170,7 +185,7 @@ export default function SafetyInvestmentApp() {
     }
   };
 
-  // 🔴 마커 이동 터치
+  // 🔴 마커 위치 미세 조정 터치
   const handleMapClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!rawMapImage) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -181,7 +196,7 @@ export default function SafetyInvestmentApp() {
     generateMarkedImage(rawMapImage, xPercent, yPercent);
   };
 
-  // 🎨 마커 + 주소 라벨 합성
+  // 🎨 마커 + 주소 라벨 Canvas 합성
   const generateMarkedImage = (sourceImgSrc: string, xPct: number, yPct: number) => {
     const img = new Image();
     img.crossOrigin = 'Anonymous';
@@ -261,7 +276,7 @@ export default function SafetyInvestmentApp() {
       workName: '도색',
       detailWork: '전체 도색',
       reason: '',
-      writer: formData.writer, // 작성자 이름 자동 유지!
+      writer: formData.writer,
       remark: '',
     });
     setRawMapImage(null);
@@ -271,22 +286,20 @@ export default function SafetyInvestmentApp() {
     alert('목록에 성공적으로 추가되었습니다!');
   };
 
-  // 🗑️ 등록 목록 개별 삭제 기능
   const handleDeleteItem = (idToDelete: number) => {
     if (confirm('해당 항목을 목록에서 삭제하시겠습니까?')) {
       setItems(items.filter((item) => item.id !== idToDelete));
     }
   };
 
-  // 🧹 등록 목록 전체 초기화 기능
   const handleClearAllItems = () => {
-    if (confirm('등록된 모든 목록을 삭제하시겠습니까? (복구할 수 없습니다)')) {
+    if (confirm('등록된 모든 목록을 삭제하시겠습니까?')) {
       setItems([]);
       localStorage.removeItem(STORAGE_KEY);
     }
   };
 
-  // 📊 엑셀 파일 다운로드
+  // 📊 엑셀 다운로드
   const exportToExcel = async () => {
     if (items.length === 0) {
       alert('다운로드할 데이터가 없습니다.');
@@ -299,7 +312,6 @@ export default function SafetyInvestmentApp() {
       const ExcelJS = (await import('exceljs')).default;
       const workbook = new ExcelJS.Workbook();
 
-      // 시트 1: [투자 내역]
       const invSheet = workbook.addWorksheet('투자 내역');
       invSheet.views = [{ showGridLines: true }];
 
@@ -395,7 +407,6 @@ export default function SafetyInvestmentApp() {
         }
       }
 
-      // 시트 2: [리스트]
       const listSheet = workbook.addWorksheet('리스트');
       listSheet.views = [{ showGridLines: true }];
 
@@ -452,7 +463,6 @@ export default function SafetyInvestmentApp() {
         }
       });
 
-      // 시트 3~N: 개별 보고서 ('1', '2'...)
       for (let idx = 0; idx < items.length; idx++) {
         const item = items[idx];
         const reportSheet = workbook.addWorksheet(`${idx + 1}`);
@@ -657,39 +667,28 @@ export default function SafetyInvestmentApp() {
             />
           </div>
 
-          {/* 🗺️ 위치도 등록 & 🔴 마커 표시 구역 */}
-          <div className="border border-slate-200 rounded-2xl p-4 bg-slate-50 space-y-3">
+          {/* ⚡ 1초 자동 지도 생성 구역 */}
+          <div className="border border-blue-200 rounded-2xl p-4 bg-blue-50/40 space-y-3">
             <div className="flex justify-between items-center">
-              <span className="text-xs font-bold text-slate-800">🗺️ 네이버 지도 캡처본 등록</span>
-              <button 
-                type="button" 
-                onClick={handleOpenNaverMap} 
-                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-1.5 px-3 rounded-lg shadow-sm"
-              >
-                🗺️ 네이버지도 열기
-              </button>
+              <div>
+                <span className="text-xs font-bold text-blue-900 block">🗺️ 위치도 지도 등록</span>
+                <span className="text-[10px] text-gray-500">주소 입력 후 아래 버튼을 터치하면 지도가 자동 생성됩니다.</span>
+              </div>
             </div>
 
-            <div className="border-2 border-dashed border-emerald-300 p-3 rounded-2xl bg-white text-center">
-              <input 
-                type="file" 
-                accept="image/*" 
-                onChange={handleMapImageUpload} 
-                className="hidden" 
-                id="map-upload" 
-              />
-              <label 
-                htmlFor="map-upload" 
-                className="cursor-pointer bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-xs py-2.5 rounded-xl font-bold block truncate text-emerald-800 shadow-sm"
-              >
-                {rawMapImage ? '✅ 위치도 첨부 완료! (아래 사진에서 터치하여 🔴 마커 지정)' : '📸 캡처한 네이버 지도 사진 첨부'}
-              </label>
-            </div>
+            <button
+              type="button"
+              onClick={handleAutoGenerateMap}
+              disabled={isMapLoading}
+              className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold py-3 px-4 rounded-xl shadow-sm transition flex items-center justify-center gap-2 text-xs"
+            >
+              {isMapLoading ? '⏳ 서버에서 지도 자동 생성 중...' : '⚡ 주소 기반 위치도 1초 자동 생성'}
+            </button>
 
-            {markedMapImage && (
+            {markedMapImage ? (
               <div className="space-y-1.5 pt-1">
                 <span className="text-[11px] font-bold text-blue-700 block">
-                  👉 첨부한 사진 위를 터치하시면 🔴 빨간 마커 위치를 이동할 수 있습니다.
+                  👉 위치도가 생성되었습니다! 필요시 사진 위를 터치하여 🔴 마커 위치를 이동할 수 있습니다.
                 </span>
                 <div 
                   onClick={handleMapClick}
@@ -698,10 +697,26 @@ export default function SafetyInvestmentApp() {
                   <img src={markedMapImage} alt="위치도 프리뷰" className="w-full h-full object-contain" />
                 </div>
               </div>
+            ) : (
+              <div className="pt-2 border-t border-blue-100 text-center">
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  onChange={handleMapImageUpload} 
+                  className="hidden" 
+                  id="map-upload" 
+                />
+                <label 
+                  htmlFor="map-upload" 
+                  className="cursor-pointer text-[11px] font-bold text-gray-500 hover:text-blue-600 underline block"
+                >
+                  (백업 기능) 직접 캡처한 지도 사진 첨부하기
+                </label>
+              </div>
             )}
           </div>
 
-          {/* 🎯 시설물 - 작업명 - 세부 내역 3단 스마트 연동 드롭다운 */}
+          {/* 🎯 3단 스마트 연동 드롭다운 */}
           <div className="space-y-3 pt-2 border-t border-slate-200">
             <div>
               <label className="text-xs font-bold text-blue-900 block mb-1">🏗️ 시설물 선택</label>
@@ -756,7 +771,7 @@ export default function SafetyInvestmentApp() {
             />
           </div>
 
-          {/* 사진 첨부 (2종) */}
+          {/* 현장 사진 첨부 */}
           <div className="space-y-3 pt-2 border-t">
             <h3 className="text-xs font-bold text-gray-700">📸 현장 사진 첨부 (2종)</h3>
 
