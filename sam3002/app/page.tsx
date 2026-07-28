@@ -163,7 +163,7 @@ export default function SafetyInvestmentApp() {
     }));
   };
 
-  // 🗺️ 네이버 지도 새창 즉시 검색 오픈
+  // 🗺️ 네이버 지도 새창 오픈
   const handleOpenNaverMap = () => {
     if (!formData.location) {
       alert('설치장소(주소)를 먼저 입력해 주세요.');
@@ -524,6 +524,7 @@ export default function SafetyInvestmentApp() {
           }
         }
 
+        // 1. 위치도 지도 사진 (B6:H35)
         if (item.mapImage) {
           const mapImgId = workbook.addImage({
             base64: item.mapImage,
@@ -557,6 +558,7 @@ export default function SafetyInvestmentApp() {
 
         reportSheet.mergeCells('C60:H79');
 
+        // 2. 📸 전경 사진 (C39:H59 영역 ➔ row: 38 ~ 59)
         if (item.fullImage) {
           const img1 = workbook.addImage({
             base64: item.fullImage,
@@ -568,13 +570,14 @@ export default function SafetyInvestmentApp() {
           });
         }
 
+        // 3. 📸 상세 사진 (C60:H79 영역 ➔ row: 59 ~ 79) - ⭐ 위치 오류 완벽 수정!
         if (item.detailImage) {
           const img2 = workbook.addImage({
             base64: item.detailImage,
             extension: 'png',
           });
           reportSheet.addImage(img2, {
-            tl: { col: 2, row: 38 },
+            tl: { col: 2, row: 59 },
             br: { col: 8, row: 79 },
           });
         }
@@ -674,7 +677,7 @@ export default function SafetyInvestmentApp() {
             </div>
           </div>
 
-          {/* ⚡ 모바일 최적화 원터치 지도 첨부 구역 */}
+          {/* ⚡ 위치도 이미지 첨부 구역 */}
           <div className="border border-blue-200 rounded-2xl p-4 bg-blue-50/40 space-y-3">
             <div className="flex justify-between items-center">
               <div>
