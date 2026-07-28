@@ -163,7 +163,7 @@ export default function SafetyInvestmentApp() {
     }));
   };
 
-  // 🗺️ 정밀 지도 생성 및 위치 지정
+  // 🗺️ 정밀 지도 지도 초기화
   const initInteractiveMap = (lon: number, lat: number) => {
     if (!mapContainerRef.current || !window.ol) return;
 
@@ -184,7 +184,7 @@ export default function SafetyInvestmentApp() {
       ],
       view: new window.ol.View({
         center: window.ol.proj.fromLonLat([lon, lat]),
-        zoom: 16,
+        zoom: 17,
         maxZoom: 20,
         minZoom: 10,
       }),
@@ -193,7 +193,7 @@ export default function SafetyInvestmentApp() {
     olMapRef.current = map;
   };
 
-  // 🔍 [다단계 정밀 주소 추출 알고리즘 적용]
+  // 🔍 [건물 번지수 단위 카카오 정밀 지오코더 연동]
   const handleOpenDaumPostcode = () => {
     if (!window.daum || !window.daum.Postcode) {
       alert('주소 검색 서비스를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.');
@@ -205,33 +205,19 @@ export default function SafetyInvestmentApp() {
         const fullAddress = data.roadAddress || data.jibunAddress;
         setFormData((prev) => ({ ...prev, location: fullAddress }));
 
-        // 평택시청으로 튕기지 않는 다단계 파싱 지오코딩
-        const candidates = [
-          fullAddress,
-          `${data.sido} ${data.sigungu} ${data.roadname}`,
-          `${data.sido} ${data.sigungu} ${data.bname}`,
-          `${data.sido} ${data.sigungu}`,
-        ];
-
         let targetLat = 36.9921;
         let targetLon = 127.1128;
-        let isFound = false;
 
-        for (const query of candidates) {
-          if (!query.trim()) continue;
-          try {
-            const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent('대한민국 ' + query)}&limit=1`;
-            const res = await fetch(url, { headers: { 'User-Agent': 'SamchullySafetyApp/1.0' } });
-            const geoData = await res.json();
-            if (geoData && geoData.length > 0 && geoData[0].lat && geoData[0].lon) {
-              targetLat = parseFloat(geoData[0].lat);
-              targetLon = parseFloat(geoData[0].lon);
-              isFound = true;
-              break;
-            }
-          } catch (e) {
-            console.warn('Geocoding search warning:', query, e);
+        try {
+          // 서버의 정밀 VWorld/카카오 API를 사용하여 건물 번호(예: 20번지) 좌표 추출
+          const res = await fetch(`/api/map?location=${encodeURIComponent(fullAddress)}`);
+          const mapData = await res.json();
+          if (mapData.success && mapData.lat && mapData.lon) {
+            targetLat = mapData.lat;
+            targetLon = mapData.lon;
           }
+        } catch (e) {
+          console.error(e);
         }
 
         setShowInteractiveMap(true);
