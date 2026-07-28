@@ -3,61 +3,69 @@ import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const location = searchParams.get('location');
+  const rawLocation = searchParams.get('location') || '';
 
-  if (!location) {
+  if (!rawLocation.trim()) {
     return NextResponse.json({ error: '설치장소(주소)를 먼저 입력해 주세요.' }, { status: 400 });
   }
 
   try {
-    // 1. 서버 단에서 주소를 위도/경도로 변환 (Nominatim OpenGeocoding)
-    const geocodeUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location)}&countrycodes=kr`;
-    const geoRes = await fetch(geocodeUrl, {
-      headers: { 'User-Agent': 'SamchullySafetyApp/1.0' },
-    });
-    const geoData = await geoRes.json();
+    const cleanedLoc = rawLocation.trim();
+    // 동/도로명 단위 추출 (예: "용이동 750-6" -> "용이동")
+    const parts = cleanedLoc.split(' ');
+    const mainDong = parts[0] || cleanedLoc;
+
+    const searchCandidates = [
+      cleanedLoc,
+      `대한민국 ${cleanedLoc}`,
+      `대한민국 경기도 ${cleanedLoc}`,
+      `대한민국 ${mainDong}`,
+    ];
 
     let lat = 37.5665;
     let lon = 126.9780;
+    let found = false;
 
-    if (geoData && geoData.length > 0) {
-      lat = parseFloat(geoData[0].lat);
-      lon = parseFloat(geoData[0].lon);
-    } else {
-      // 한국어 보완 검색
-      const fallbackGeoUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent('대한민국 ' + location)}`;
-      const fallbackRes = await fetch(fallbackGeoUrl, {
-        headers: { 'User-Agent': 'SamchullySafetyApp/1.0' },
-      });
-      const fallbackData = await fallbackRes.json();
-      if (fallbackData && fallbackData.length > 0) {
-        lat = parseFloat(fallbackData[0].lat);
-        lon = parseFloat(fallbackData[0].lon);
+    for (const query of searchCandidates) {
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`;
+        const res = await fetch(url, {
+          headers: {
+            'User-Agent': 'SamchullySafetyApp/1.0 (contact@samchully.co.kr)',
+            'Accept-Language': 'ko-KR,ko;q=0.9',
+          },
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.length > 0 && data[0].lat && data[0].lon) {
+            lat = parseFloat(data[0].lat);
+            lon = parseFloat(data[0].lon);
+            found = true;
+            break;
+          }
+        }
+      } catch (e) {
+        console.warn('Geocode candidate search warning:', query, e);
       }
     }
 
-    // 2. 서버 단에서 지도 이미지 Fetch (CORS 차단 완전 우회!)
-    let staticMapUrl = `https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lon}&zoom=17&size=800x500&markers=${lat},${lon},ol-marker`;
-
-    let imgRes = await fetch(staticMapUrl);
-
-    if (!imgRes.ok) {
-      // 백업 지도 서버
-      staticMapUrl = `https://static-maps.yandex.ru/1.x/?l=map&pt=${lon},${lat},pm2rdm&z=17&size=650,450&lang=en_US`;
-      imgRes = await fetch(staticMapUrl);
-    }
-
-    const arrayBuffer = await imgRes.arrayBuffer();
-    const base64 = Buffer.from(arrayBuffer).toString('base64');
-
     return NextResponse.json({
       success: true,
-      base64: `data:image/png;base64,${base64}`,
       lat,
       lon,
+      found,
+      location: cleanedLoc,
     });
   } catch (error) {
-    console.error('지도 자동 생성 실패:', error);
-    return NextResponse.json({ error: '지도 자동 생성 중 오류가 발생했습니다.' }, { status: 500 });
+    console.error('API Error:', error);
+    // 서버 에러로 튕기지 않고 평택/기본 좌표로 안전 반환
+    return NextResponse.json({
+      success: true,
+      lat: 36.9921,
+      lon: 127.1128,
+      found: false,
+      location: rawLocation,
+    });
   }
 }

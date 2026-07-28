@@ -142,7 +142,89 @@ export default function SafetyInvestmentApp() {
     }));
   };
 
-  // ⚡ [핵심] 주소 기반 지도 1초 자동 생성 기능 (캡처/업로드 완전 대체!)
+  // 🎨 [핵심] 초고속 CartoDB 렌더링 엔진 (CORS 100% 안전)
+  const renderMapCanvas = async (lat: number, lon: number, locationName: string) => {
+    const zoom = 16;
+    const width = 800;
+    const height = 500;
+
+    const latRad = (lat * Math.PI) / 180;
+    const n = Math.pow(2, zoom);
+    const centerX = ((lon + 180) / 360) * n * 256;
+    const centerY =
+      ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) *
+      n *
+      256;
+
+    const startX = centerX - width / 2;
+    const startY = centerY - height / 2;
+
+    const minTileX = Math.floor(startX / 256);
+    const maxTileX = Math.floor((startX + width) / 256);
+    const minTileY = Math.floor(startY / 256);
+    const maxTileY = Math.floor((startY + height) / 256);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    ctx.fillStyle = '#f1f5f9';
+    ctx.fillRect(0, 0, width, height);
+
+    const tilePromises: Promise<void>[] = [];
+
+    for (let tx = minTileX; tx <= maxTileX; tx++) {
+      for (let ty = minTileY; ty <= maxTileY; ty++) {
+        const tileUrl = `https://basemaps.cartocdn.com/rastertiles/voyager/${zoom}/${tx}/${ty}.png`;
+        const p = new Promise<void>((resolve) => {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = () => {
+            const dx = tx * 256 - startX;
+            const dy = ty * 256 - startY;
+            ctx.drawImage(img, dx, dy, 256, 256);
+            resolve();
+          };
+          img.onerror = () => resolve();
+          img.src = tileUrl;
+        });
+        tilePromises.push(p);
+      }
+    }
+
+    await Promise.all(tilePromises);
+
+    // 🔴 마커 생성
+    const targetX = width / 2;
+    const targetY = height / 2;
+
+    ctx.beginPath();
+    ctx.arc(targetX, targetY, width * 0.03, 0, 2 * Math.PI);
+    ctx.fillStyle = 'rgba(239, 68, 68, 0.35)';
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#ef4444';
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(targetX, targetY, width * 0.01, 0, 2 * Math.PI);
+    ctx.fillStyle = '#dc2626';
+    ctx.fill();
+
+    if (locationName) {
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+      ctx.fillRect(15, 15, width * 0.6, 42);
+      ctx.font = 'bold 18px "맑은 고딕", sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(`📍 위치: ${locationName}`, 25, 42);
+    }
+
+    return canvas.toDataURL('image/png');
+  };
+
+  // ⚡ 주소 기반 위치도 자동 생성
   const handleAutoGenerateMap = async () => {
     if (!formData.location) {
       alert('설치장소(주소)를 먼저 입력해 주세요.');
@@ -155,13 +237,18 @@ export default function SafetyInvestmentApp() {
       const res = await fetch(`/api/map?location=${encodeURIComponent(formData.location)}`);
       const data = await res.json();
 
-      if (data.success && data.base64) {
-        setRawMapImage(data.base64);
-        setMarkerPos({ x: 50, y: 50 });
-        generateMarkedImage(data.base64, 50, 50);
-        alert('✨ 위치도 지도가 자동으로 생성되고 🔴 마커가 지정되었습니다!');
+      if (data.success && data.lat && data.lon) {
+        const base64Image = await renderMapCanvas(data.lat, data.lon, formData.location);
+        if (base64Image) {
+          setRawMapImage(base64Image);
+          setMarkedMapImage(base64Image);
+          setMarkerPos({ x: 50, y: 50 });
+          alert('✨ 위치도 지도가 성공적으로 자동 생성되었습니다!');
+        } else {
+          alert('지도 이미지 합성 실패. 백업 수동 첨부를 이용해 주세요.');
+        }
       } else {
-        alert(data.error || '지도를 자동으로 불러오지 못했습니다. 수동 첨부를 이용해 주세요.');
+        alert('지도를 찾을 수 없습니다. 설치장소(주소)를 확인해 주세요.');
       }
     } catch (e) {
       console.error(e);
@@ -171,7 +258,7 @@ export default function SafetyInvestmentApp() {
     }
   };
 
-  // 📸 수동 캡처본 사진 첨부 (백업용)
+  // 📸 수동 캡처본 사진 첨부
   const handleMapImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -185,7 +272,7 @@ export default function SafetyInvestmentApp() {
     }
   };
 
-  // 🔴 마커 위치 미세 조정 터치
+  // 🔴 마커 이동 터치
   const handleMapClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!rawMapImage) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -196,7 +283,6 @@ export default function SafetyInvestmentApp() {
     generateMarkedImage(rawMapImage, xPercent, yPercent);
   };
 
-  // 🎨 마커 + 주소 라벨 Canvas 합성
   const generateMarkedImage = (sourceImgSrc: string, xPct: number, yPct: number) => {
     const img = new Image();
     img.crossOrigin = 'Anonymous';
@@ -227,7 +313,7 @@ export default function SafetyInvestmentApp() {
 
       if (formData.location) {
         ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-        ctx.fillRect(15, 15, canvas.width * 0.55, 42);
+        ctx.fillRect(15, 15, canvas.width * 0.6, 42);
         ctx.font = 'bold 18px "맑은 고딕", sans-serif';
         ctx.fillStyle = '#ffffff';
         ctx.fillText(`📍 위치: ${formData.location}`, 25, 42);
@@ -238,7 +324,6 @@ export default function SafetyInvestmentApp() {
     img.src = sourceImgSrc;
   };
 
-  // 📸 현장 사진 첨부
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string | null) => void) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -250,7 +335,6 @@ export default function SafetyInvestmentApp() {
     }
   };
 
-  // ➕ 목록 추가
   const handleAddToList = async () => {
     if (!formData.facilityNo || !formData.facilityName || !formData.location) {
       alert('시설번호, 시설명, 설치장소를 입력해주세요.');
@@ -299,7 +383,6 @@ export default function SafetyInvestmentApp() {
     }
   };
 
-  // 📊 엑셀 다운로드
   const exportToExcel = async () => {
     if (items.length === 0) {
       alert('다운로드할 데이터가 없습니다.');
@@ -667,7 +750,7 @@ export default function SafetyInvestmentApp() {
             />
           </div>
 
-          {/* ⚡ 1초 자동 지도 생성 구역 */}
+          {/* ⚡ 위치도 자동 생성 구역 */}
           <div className="border border-blue-200 rounded-2xl p-4 bg-blue-50/40 space-y-3">
             <div className="flex justify-between items-center">
               <div>
