@@ -1,8 +1,7 @@
 // @ts-nocheck
 'use client';
 
-import { useState, useRef } from 'react';
-import html2canvas from 'html2canvas';
+import { useState } from 'react';
 
 export default function SafetyInvestmentApp() {
   const [formData, setFormData] = useState({
@@ -15,55 +14,33 @@ export default function SafetyInvestmentApp() {
     remark: '',
   });
 
-  const [zoomLevel, setZoomLevel] = useState(17);
-  const [markerPos, setMarkerPos] = useState({ x: 50, y: 50 });
-  const [capturedMapImg, setCapturedMapImg] = useState<string | null>(null);
-  const [fullImage, setFullImage] = useState<string | null>(null);
-  const [detailImage, setDetailImage] = useState<string | null>(null);
+  const [mapImage, setMapImage] = useState<string | null>(null); // 위치도 이미지
+  const [fullImage, setFullImage] = useState<string | null>(null); // 전경 사진
+  const [detailImage, setDetailImage] = useState<string | null>(null); // 상세 사진
   const [items, setItems] = useState<any[]>([]);
   const [isExporting, setIsExporting] = useState(false);
 
-  // 🗺️ 지도 엘리먼트 참조
-  const mapRef = useRef<HTMLDivElement>(null);
-
-  // 🔍 지도 확대 / 축소
-  const handleZoomIn = () => setZoomLevel((prev) => Math.min(prev + 1, 20));
-  const handleZoomOut = () => setZoomLevel((prev) => Math.max(prev - 1, 12));
-
-  // 🔴 지도 터치/클릭 시 동그라미 마커 이동
-  const handleMapClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const xPercent = ((e.clientX - rect.left) / rect.width) * 100;
-    const yPercent = ((e.clientY - rect.top) / rect.height) * 100;
-    setMarkerPos({ x: xPercent, y: yPercent });
-  };
-
-  // 📸 [화면 그대로 캡처] html2canvas 방식
-  const handleCaptureMap = async () => {
+  // 🗺️ 네이버 지도 열기
+  const handleOpenNaverMap = () => {
     if (!formData.location) {
       alert('설치장소(주소)를 먼저 입력해 주세요.');
       return;
     }
-
-    if (!mapRef.current) return;
-
-    try {
-      // 화면에 그려진 지도 박스 요소를 그대로 캡처
-      const canvas = await html2canvas(mapRef.current, {
-        useCORS: true,
-        allowTaint: true,
-        scale: 2, // 고화질
-      });
-
-      const mapDataUrl = canvas.toDataURL('image/png');
-      setCapturedMapImg(mapDataUrl);
-      alert('📸 화면에 보이는 위치도가 그대로 캡처되었습니다! (엑셀에 자동 저장됩니다)');
-    } catch {
-      alert('캡처 중 오류가 발생했습니다. 다시 시도해 주세요.');
-    }
+    const naverUrl = `https://map.naver.com/v5/search/${encodeURIComponent(formData.location)}`;
+    window.open(naverUrl, '_blank');
   };
 
-  // 📸 현장 사진 첨부
+  // 🌐 구글 지도 열기
+  const handleOpenGoogleMap = () => {
+    if (!formData.location) {
+      alert('설치장소(주소)를 먼저 입력해 주세요.');
+      return;
+    }
+    const googleUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(formData.location)}`;
+    window.open(googleUrl, '_blank');
+  };
+
+  // 📸 이미지 파일 첨부 통합 처리
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string | null) => void) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -82,21 +59,11 @@ export default function SafetyInvestmentApp() {
       return;
     }
 
-    let finalMapImg = capturedMapImg;
-    if (!finalMapImg && mapRef.current) {
-      try {
-        const canvas = await html2canvas(mapRef.current, { useCORS: true, allowTaint: true });
-        finalMapImg = canvas.toDataURL('image/png');
-      } catch {
-        // fallback
-      }
-    }
-
     const newItem = {
       id: items.length + 1,
       ...formData,
       date: new Date().toISOString().split('T')[0],
-      mapImage: finalMapImg,
+      mapImage,
       fullImage,
       detailImage,
     };
@@ -112,13 +79,13 @@ export default function SafetyInvestmentApp() {
       writer: formData.writer,
       remark: '',
     });
-    setCapturedMapImg(null);
+    setMapImage(null);
     setFullImage(null);
     setDetailImage(null);
     alert('목록에 성공적으로 추가되었습니다!');
   };
 
-  // 📊 엑셀 다운로드
+  // 📊 엑셀 다운로드 (B6:H35 위치도 매핑)
   const exportToExcel = async () => {
     if (items.length === 0) {
       alert('다운로드할 데이터가 없습니다.');
@@ -348,7 +315,7 @@ export default function SafetyInvestmentApp() {
           }
         }
 
-        // 🖼️ B6:H35에 화면 캡처본 정확히 부착
+        // 🖼️ 캡처한 위치도 이미지를 B6:H35 영역에 삽입
         if (item.mapImage) {
           const mapImgId = workbook.addImage({
             base64: item.mapImage,
@@ -480,79 +447,53 @@ export default function SafetyInvestmentApp() {
               type="text" 
               value={formData.location} 
               onChange={e => setFormData({ ...formData, location: e.target.value })} 
-              placeholder="예: 용이동 710" 
+              placeholder="예: 용이동 710 또는 고덕로 191" 
               className="w-full p-2.5 bg-slate-50 border rounded-xl text-sm font-semibold outline-none focus:border-blue-500" 
             />
-            <span className="text-[10px] text-blue-600 font-medium mt-1 block">
-              💡 아래 화면의 지도 박스를 맞춘 후 <b>[📸 현재 화면 그대로 캡처]</b>를 눌러주세요.
-            </span>
           </div>
 
-          {/* 🎯 화면 캡처 대상 영역 (mapRef) */}
-          <div className="border border-slate-200 rounded-2xl p-3 bg-slate-50 space-y-2">
-            <div className="flex flex-wrap justify-between items-center gap-1.5">
-              <span className="text-xs font-bold text-slate-800">🗺️ 터치로 🔴 위치 지정</span>
-              <div className="flex items-center gap-1">
-                <button 
-                  type="button" 
-                  onClick={handleZoomIn} 
-                  className="bg-white border text-xs px-2 py-1 rounded-lg font-bold hover:bg-slate-100 shadow-sm"
-                >
-                  🔍 [+]
-                </button>
-                <button 
-                  type="button" 
-                  onClick={handleZoomOut} 
-                  className="bg-white border text-xs px-2 py-1 rounded-lg font-bold hover:bg-slate-100 shadow-sm"
-                >
-                  🔎 [-]
-                </button>
-                <button 
-                  type="button" 
-                  onClick={handleCaptureMap} 
-                  className="bg-blue-600 text-white text-xs px-2.5 py-1 rounded-lg font-bold hover:bg-blue-700 shadow-md flex items-center gap-0.5"
-                >
-                  📸 현재 화면 그대로 캡처
-                </button>
-              </div>
-            </div>
+          {/* 🗺️ 위치도 등록 구역 */}
+          <div className="border border-slate-200 rounded-2xl p-4 bg-slate-50 space-y-3">
+            <span className="text-xs font-bold text-slate-800 block">🗺️ 위치도 등록 (네이버 / 구글 지도)</span>
 
-            {/* 화면 그대로 캡처되는 프레임 */}
-            <div 
-              ref={mapRef}
-              onClick={handleMapClick}
-              className="relative w-full h-64 rounded-xl overflow-hidden border border-slate-300 cursor-pointer shadow-inner bg-slate-200"
-            >
-              <iframe
-                title="지도 미리보기"
-                width="100%"
-                height="100%"
-                loading="lazy"
-                style={{ border: 0, pointerEvents: 'none' }}
-                src={`https://maps.google.com/maps?q=${encodeURIComponent(formData.location || '용이동 710')}&t=&z=${zoomLevel}&ie=UTF8&iwloc=&output=embed`}
-              />
-
-              <div 
-                className="absolute transform -translate-x-1/2 -translate-y-1/2 pointer-events-none transition-all duration-150 z-10"
-                style={{ left: `${markerPos.x}%`, top: `${markerPos.y}%` }}
+            {/* 지도 이동 버튼들 */}
+            <div className="grid grid-cols-2 gap-2">
+              <button 
+                type="button" 
+                onClick={handleOpenNaverMap} 
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2.5 px-3 rounded-xl shadow-md flex items-center justify-center gap-1"
               >
-                <div className="w-10 h-10 rounded-full bg-red-500/35 border-2 border-red-600 flex items-center justify-center animate-pulse shadow-lg">
-                  <div className="w-3 h-3 rounded-full bg-red-600 shadow-md" />
-                </div>
-              </div>
-
-              {formData.location && (
-                <div className="absolute top-2 left-2 bg-slate-900/80 text-white px-3 py-1 rounded-lg text-xs font-bold z-20">
-                  📍 위치: {formData.location}
-                </div>
-              )}
+                🗺️ 네이버지도 열기
+              </button>
+              <button 
+                type="button" 
+                onClick={handleOpenGoogleMap} 
+                className="bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold py-2.5 px-3 rounded-xl shadow-md flex items-center justify-center gap-1"
+              >
+                🗺️ 구글지도 열기
+              </button>
             </div>
 
-            {capturedMapImg && (
-              <span className="text-[11px] font-bold text-emerald-600 block text-right">
-                ✅ 현재 화면 캡처 완료! (엑셀 B6:H35 영역에 들어갑니다)
-              </span>
-            )}
+            <span className="text-[11px] text-gray-500 block">
+              👉 지도에서 원하는 위치와 확대 비율을 맞추신 후 <b>캡처</b>해 주세요.
+            </span>
+
+            {/* 캡처한 위치도 파일 첨부 버튼 */}
+            <div className="border-2 border-dashed border-emerald-300 p-3 rounded-2xl bg-white text-center">
+              <input 
+                type="file" 
+                accept="image/*" 
+                onChange={e => handleImageUpload(e, setMapImage)} 
+                className="hidden" 
+                id="map-upload" 
+              />
+              <label 
+                htmlFor="map-upload" 
+                className="cursor-pointer bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-xs py-2.5 rounded-xl font-bold block truncate text-emerald-800 shadow-sm"
+              >
+                {mapImage ? '✅ 캡처한 위치도 첨부 완료!' : '📸 캡처한 위치도 사진 선택/첨부'}
+              </label>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -589,7 +530,7 @@ export default function SafetyInvestmentApp() {
             />
           </div>
 
-          {/* 사진 첨부 */}
+          {/* 사진 첨부 (2종) */}
           <div className="space-y-3 pt-2 border-t">
             <h3 className="text-xs font-bold text-gray-700">📸 현장 사진 첨부 (2종)</h3>
 
