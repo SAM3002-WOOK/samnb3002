@@ -1,26 +1,85 @@
 // @ts-nocheck
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+
+// 📊 [투자 내역 참고 자료] 마스터 데이터 정의 (시설물 - 작업명 - 세부내역 연동)
+const INVESTMENT_DATA = {
+  정압기: {
+    도색: ['전체 도색', '흡 · 배기 방출관 도색', '출입문 도색', '휠터 1개소 도색', '배관 일부 도색 (50%)', '배관 지지대(서포트) 내화도색', '내부 벽면 도장(바닥제외 5면)', '그 외 견적 시행'],
+    방수: ['출입구 2개소 방수', '슬리브 2개소 방수', '그 외 견적 시행'],
+    '전기통신 부품 교체': ['RTU외함 교체', '방폭등 교체', '방폭등 위치 변경 (견적시행)', 'MOV, SSV등 전선관 보수 1·2개소'],
+    '사다리 교체': ['정압기실 1·2개소', '미끄럼방지 설치'],
+    기타: ['그 외 특수 공사'],
+  },
+  밸브: {
+    '인상/인하': ['시설물 인상, 인하', '철괘 교체', '맨홀 주변 파손'],
+    환경정리: ['매몰형 이물질 제거', '박스형 이물질 제거'],
+    '철거/교체': ['점검곤란 밸브', '과심도 밸브'],
+    도색: ['밸브실 도색', '인입밸브 100A이하 도색', '입상밸브 및 박스포함', '그 외 견적 시행'],
+    방수: ['출입구 1개소 방수', '슬리브 2개소 방수'],
+    '사다리 교체': ['사다리 연장', '사다리 교체'],
+  },
+  전기방식: {
+    철거: ['부분 철거'],
+    '인상/인하': ['시설물 인상, 인하', '철괘 교체', '맨홀 주변 파손'],
+    신설: ['신규 설치'],
+  },
+  배관: {
+    '라인마크 설치': ['검지공형 라인마크 설치', '일반 라인마크 설치'],
+    철거: ['미사용 인입 본관/공급관/인입관'],
+  },
+  사용시설: {
+    '입상관 보호대': ['50A 이하', '100A'],
+  },
+};
 
 export default function SafetyInvestmentApp() {
   const [formData, setFormData] = useState({
     facilityNo: '',
     facilityName: '',
     location: '',
-    workName: '밸브 교체',
+    category: '정압기', // 시설물 기본값
+    workName: '도색',   // 작업명 기본값
+    detailWork: '전체 도색', // 세부내역 기본값
     reason: '',
     writer: '',
     remark: '',
   });
 
-  const [rawMapImage, setRawMapImage] = useState<string | null>(null); // 원본 위치도
-  const [markedMapImage, setMarkedMapImage] = useState<string | null>(null); // 마커 합성 위치도
-  const [markerPos, setMarkerPos] = useState({ x: 50, y: 50 }); // 마커 좌표 (%)
-  const [fullImage, setFullImage] = useState<string | null>(null); // 전경 사진
-  const [detailImage, setDetailImage] = useState<string | null>(null); // 상세 사진
+  const [rawMapImage, setRawMapImage] = useState<string | null>(null);
+  const [markedMapImage, setMarkedMapImage] = useState<string | null>(null);
+  const [markerPos, setMarkerPos] = useState({ x: 50, y: 50 });
+  const [fullImage, setFullImage] = useState<string | null>(null);
+  const [detailImage, setDetailImage] = useState<string | null>(null);
   const [items, setItems] = useState<any[]>([]);
   const [isExporting, setIsExporting] = useState(false);
+
+  // 🔄 시설물 변경 시 작업명 및 세부내역 자동 갱신
+  useEffect(() => {
+    const availableWorks = Object.keys(INVESTMENT_DATA[formData.category] || {});
+    const firstWork = availableWorks[0] || '';
+    const availableDetails = INVESTMENT_DATA[formData.category]?.[firstWork] || [];
+    const firstDetail = availableDetails[0] || '';
+
+    setFormData((prev) => ({
+      ...prev,
+      workName: firstWork,
+      detailWork: firstDetail,
+    }));
+  }, [formData.category]);
+
+  // 🔄 작업명 변경 시 세부내역 자동 갱신
+  const handleWorkNameChange = (work: string) => {
+    const availableDetails = INVESTMENT_DATA[formData.category]?.[work] || [];
+    const firstDetail = availableDetails[0] || '';
+
+    setFormData((prev) => ({
+      ...prev,
+      workName: work,
+      detailWork: firstDetail,
+    }));
+  };
 
   // 🗺️ 네이버 지도 열기
   const handleOpenNaverMap = () => {
@@ -32,7 +91,7 @@ export default function SafetyInvestmentApp() {
     window.open(naverUrl, '_blank');
   };
 
-  // 📸 위치도 사진 첨부 및 Canvas 마커 기본 합성
+  // 📸 위치도 사진 첨부 및 마커 생성
   const handleMapImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -46,7 +105,7 @@ export default function SafetyInvestmentApp() {
     }
   };
 
-  // 🔴 위치도 터치 시 빨간 동그라미 마커 그리기
+  // 🔴 마커 이동 터치
   const handleMapClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!rawMapImage) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -57,7 +116,7 @@ export default function SafetyInvestmentApp() {
     generateMarkedImage(rawMapImage, xPercent, yPercent);
   };
 
-  // 🎨 이미지 위에 🔴 마커 + 📍 주소 라벨 합성
+  // 🎨 마커 + 주소 라벨 합성
   const generateMarkedImage = (sourceImgSrc: string, xPct: number, yPct: number) => {
     const img = new Image();
     img.crossOrigin = 'Anonymous';
@@ -68,14 +127,11 @@ export default function SafetyInvestmentApp() {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // 1. 원본 지도 그리기
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-      // 2. 마커 위치 계산
       const targetX = (xPct / 100) * canvas.width;
       const targetY = (yPct / 100) * canvas.height;
 
-      // 3. 🔴 빨간 원 마커 그리기
       ctx.beginPath();
       ctx.arc(targetX, targetY, canvas.width * 0.03, 0, 2 * Math.PI);
       ctx.fillStyle = 'rgba(239, 68, 68, 0.35)';
@@ -89,7 +145,6 @@ export default function SafetyInvestmentApp() {
       ctx.fillStyle = '#dc2626';
       ctx.fill();
 
-      // 4. 주소 라벨 그려넣기
       if (formData.location) {
         ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
         ctx.fillRect(15, 15, canvas.width * 0.55, 42);
@@ -103,7 +158,7 @@ export default function SafetyInvestmentApp() {
     img.src = sourceImgSrc;
   };
 
-  // 📸 현장 사진 첨부 (전경 / 상세)
+  // 📸 현장 사진 첨부
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string | null) => void) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -137,7 +192,9 @@ export default function SafetyInvestmentApp() {
       facilityNo: '',
       facilityName: '',
       location: '',
-      workName: '밸브 교체',
+      category: '정압기',
+      workName: '도색',
+      detailWork: '전체 도색',
       reason: '',
       writer: formData.writer,
       remark: '',
@@ -149,7 +206,7 @@ export default function SafetyInvestmentApp() {
     alert('목록에 성공적으로 추가되었습니다!');
   };
 
-  // 📊 엑셀 다운로드 (B6:H35 위치도 매핑)
+  // 📊 엑셀 파일 다운로드
   const exportToExcel = async () => {
     if (items.length === 0) {
       alert('다운로드할 데이터가 없습니다.');
@@ -193,7 +250,7 @@ export default function SafetyInvestmentApp() {
         [4, '', '', '휠터 1개소 도색', ''],
         [5, '', '', '배관 일부 도색 (50%)', ''],
         [6, '', '', '배관 지지대(서포트) 내화도색', ''],
-        [7, '', '', '내부 벽면 도장(바다제외 5면)', ''],
+        [7, '', '', '내부 벽면 도장(바닥제외 5면)', ''],
         [8, '', '', '그 외 견적 시행', ''],
         [9, '', '방수', '출입구 2개소 방수', ''],
         [10, '', '', '슬리브 2개소 방수', ''],
@@ -278,7 +335,7 @@ export default function SafetyInvestmentApp() {
       listSheet.getCell('B2').alignment = { vertical: 'middle' };
       listSheet.getRow(2).height = 20.25;
 
-      const listHeaders = ['구분', '시설번호', '시설명', '시설위치', '등록일자', '작업명', '사유', '작성자', '비고'];
+      const listHeaders = ['구분', '시설번호', '시설명', '시설위치', '등록일자', '작업명', '세부 내역', '작성자', '비고'];
       listHeaders.forEach((h, i) => {
         const colLetter = String.fromCharCode(66 + i);
         const cell = listSheet.getCell(`${colLetter}4`);
@@ -299,8 +356,8 @@ export default function SafetyInvestmentApp() {
           item.facilityName,
           item.location,
           item.date,
-          item.workName,
-          item.reason,
+          `${item.category} - ${item.workName}`,
+          item.detailWork,
           item.writer,
           item.remark || ''
         ];
@@ -354,10 +411,10 @@ export default function SafetyInvestmentApp() {
 
         reportSheet.mergeCells('B5:C5');
         reportSheet.getCell('B5').value = '작 업 명';
-        reportSheet.getCell('D5').value = item.workName;
-        reportSheet.getCell('E5').value = '사 유';
+        reportSheet.getCell('D5').value = `${item.category} / ${item.workName}`;
+        reportSheet.getCell('E5').value = '세 부 내 역';
         reportSheet.mergeCells('F5:H5');
-        reportSheet.getCell('F5').value = item.reason;
+        reportSheet.getCell('F5').value = item.detailWork;
 
         [4, 5].forEach((r) => {
           for (let c = 2; c <= 8; c++) {
@@ -379,7 +436,6 @@ export default function SafetyInvestmentApp() {
           }
         }
 
-        // 🖼️ 🔴 마커가 합성된 위치도 이미지를 B6:H35 영역에 삽입
         if (item.mapImage) {
           const mapImgId = workbook.addImage({
             base64: item.mapImage,
@@ -529,7 +585,6 @@ export default function SafetyInvestmentApp() {
               </button>
             </div>
 
-            {/* 위치도 사진 첨부 버튼 */}
             <div className="border-2 border-dashed border-emerald-300 p-3 rounded-2xl bg-white text-center">
               <input 
                 type="file" 
@@ -546,7 +601,6 @@ export default function SafetyInvestmentApp() {
               </label>
             </div>
 
-            {/* 🔴 마커 표시 터치 상자 */}
             {markedMapImage && (
               <div className="space-y-1.5 pt-1">
                 <span className="text-[11px] font-bold text-blue-700 block">
@@ -562,26 +616,47 @@ export default function SafetyInvestmentApp() {
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          {/* 🎯 시설물 - 작업명 - 세부 내역 3단 스마트 연동 드롭다운 */}
+          <div className="space-y-3 pt-2 border-t border-slate-200">
             <div>
-              <label className="text-xs font-bold text-gray-600 block mb-1">작업명</label>
-              <input 
-                type="text" 
-                value={formData.workName} 
-                onChange={e => setFormData({ ...formData, workName: e.target.value })} 
-                placeholder="예: 밸브 교체" 
-                className="w-full p-2.5 bg-slate-50 border rounded-xl text-sm font-semibold outline-none focus:border-blue-500" 
-              />
+              <label className="text-xs font-bold text-blue-900 block mb-1">🏗️ 시설물 선택</label>
+              <select
+                value={formData.category}
+                onChange={e => setFormData({ ...formData, category: e.target.value })}
+                className="w-full p-2.5 bg-blue-50/60 border border-blue-200 rounded-xl text-sm font-bold text-slate-800 outline-none focus:border-blue-500 cursor-pointer"
+              >
+                {Object.keys(INVESTMENT_DATA).map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
             </div>
-            <div>
-              <label className="text-xs font-bold text-gray-600 block mb-1">사유</label>
-              <input 
-                type="text" 
-                value={formData.reason} 
-                onChange={e => setFormData({ ...formData, reason: e.target.value })} 
-                placeholder="예: 밸브 손상" 
-                className="w-full p-2.5 bg-slate-50 border rounded-xl text-sm font-semibold outline-none focus:border-blue-500" 
-              />
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-bold text-gray-600 block mb-1">🔧 작업명 선택</label>
+                <select
+                  value={formData.workName}
+                  onChange={e => handleWorkNameChange(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 border rounded-xl text-sm font-semibold text-slate-800 outline-none focus:border-blue-500 cursor-pointer"
+                >
+                  {Object.keys(INVESTMENT_DATA[formData.category] || {}).map(work => (
+                    <option key={work} value={work}>{work}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-gray-600 block mb-1">📝 세부 내역 선택</label>
+                <select
+                  value={formData.detailWork}
+                  onChange={e => setFormData({ ...formData, detailWork: e.target.value })}
+                  className="w-full p-2.5 bg-slate-50 border rounded-xl text-sm font-semibold text-slate-800 outline-none focus:border-blue-500 cursor-pointer"
+                >
+                  {(INVESTMENT_DATA[formData.category]?.[formData.workName] || []).map(detail => (
+                    <option key={detail} value={detail}>{detail}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 
@@ -648,7 +723,7 @@ export default function SafetyInvestmentApp() {
                 <div key={item.id} className="p-3 bg-slate-50 border rounded-2xl flex justify-between items-center text-xs">
                   <div>
                     <span className="font-bold text-blue-900">[{item.facilityNo}] {item.facilityName}</span>
-                    <p className="text-gray-500 mt-0.5">{item.location} | {item.workName}</p>
+                    <p className="text-gray-500 mt-0.5">{item.location} | {item.category} ({item.workName} - {item.detailWork})</p>
                   </div>
                   <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-lg font-bold">#{idx + 1}</span>
                 </div>
