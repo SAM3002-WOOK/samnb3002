@@ -1,7 +1,7 @@
 // @ts-nocheck
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 
 export default function SafetyInvestmentApp() {
   const [formData, setFormData] = useState({
@@ -15,7 +15,7 @@ export default function SafetyInvestmentApp() {
   });
 
   const [zoomLevel, setZoomLevel] = useState(17);
-  const [markerPos, setMarkerPos] = useState({ x: 50, y: 50 }); // 마커 퍼센트 위치
+  const [markerPos, setMarkerPos] = useState({ x: 50, y: 50 });
   const [capturedMapImg, setCapturedMapImg] = useState<string | null>(null);
   const [fullImage, setFullImage] = useState<string | null>(null);
   const [detailImage, setDetailImage] = useState<string | null>(null);
@@ -34,6 +34,16 @@ export default function SafetyInvestmentApp() {
     setMarkerPos({ x: xPercent, y: yPercent });
   };
 
+  // 🌐 후배 방식: Google Maps 새 창/외부 브라우저로 크게 열기 (api=1 형식)
+  const handleOpenGoogleMaps = () => {
+    if (!formData.location) {
+      alert('설치장소(주소)를 먼저 입력해 주세요.');
+      return;
+    }
+    const googleUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(formData.location)}`;
+    window.open(googleUrl, '_blank');
+  };
+
   // 📸 현장 사진 첨부
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string | null) => void) => {
     const file = e.target.files?.[0];
@@ -46,7 +56,7 @@ export default function SafetyInvestmentApp() {
     }
   };
 
-  // 📸 [📸 현재 위치도 캡처하기] 버튼 기능 - 정밀 고화질 Canvas 지도로 캡처 생성
+  // 📸 위치도 캡처 (Canvas 고화질 맵 생성)
   const handleCaptureMap = () => {
     if (!formData.location) {
       alert('설치장소(주소)를 먼저 입력해 주세요.');
@@ -59,7 +69,6 @@ export default function SafetyInvestmentApp() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // 카카오/지오코더 베이스의 고화질 500:1 지도 타일 렌더링
     const staticMapUrl = `https://staticmap.openstreetmap.de/staticmap.php?center=${encodeURIComponent(formData.location)}&zoom=${zoomLevel}&size=800x500&maptype=mapnik`;
     const img = new Image();
     img.crossOrigin = 'Anonymous';
@@ -67,7 +76,6 @@ export default function SafetyInvestmentApp() {
     img.onload = () => {
       ctx.drawImage(img, 0, 0, 800, 500);
 
-      // 🔴 지정된 위치에 빨간 동그라미 타겟 그려 넣기
       const targetX = (markerPos.x / 100) * 800;
       const targetY = (markerPos.y / 100) * 500;
 
@@ -84,23 +92,21 @@ export default function SafetyInvestmentApp() {
       ctx.fillStyle = '#dc2626';
       ctx.fill();
 
-      // 주소 라벨
       ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-      ctx.fillRect(15, 15, 450, 36);
-      ctx.font = 'bold 15px "맑은 고딕", sans-serif';
+      ctx.fillRect(15, 15, 480, 38);
+      ctx.font = 'bold 16px "맑은 고딕", sans-serif';
       ctx.fillStyle = '#ffffff';
-      ctx.fillText(`📍 위치: ${formData.location}`, 25, 39);
+      ctx.fillText(`📍 위치: ${formData.location}`, 25, 40);
 
       setCapturedMapImg(canvas.toDataURL('image/png'));
       alert('📸 현재 위치도가 성공적으로 캡처되었습니다!');
     };
 
     img.onerror = () => {
-      // 대체 지도 캔버스 생성
       ctx.fillStyle = '#f1f5f9';
       ctx.fillRect(0, 0, 800, 500);
-      ctx.strokeStyle = '#cbd5e1';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#2563eb';
+      ctx.lineWidth = 3;
       ctx.strokeRect(10, 10, 780, 480);
 
       const targetX = (markerPos.x / 100) * 800;
@@ -113,6 +119,11 @@ export default function SafetyInvestmentApp() {
       ctx.lineWidth = 4;
       ctx.strokeStyle = '#ef4444';
       ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(targetX, targetY, 7, 0, 2 * Math.PI);
+      ctx.fillStyle = '#dc2626';
+      ctx.fill();
 
       ctx.font = 'bold 18px "맑은 고딕", sans-serif';
       ctx.fillStyle = '#0f172a';
@@ -133,7 +144,6 @@ export default function SafetyInvestmentApp() {
       return;
     }
 
-    // 미리 캡처해둔 위치도가 없으면 자동 생성
     let finalMapImg = capturedMapImg;
     if (!finalMapImg) {
       const canvas = document.createElement('canvas');
@@ -400,7 +410,6 @@ export default function SafetyInvestmentApp() {
           }
         });
 
-        // B6:H35 영역 완벽 병합 (위치도 틀)
         reportSheet.mergeCells('B6:H35');
 
         for (let r = 2; r <= 79; r++) {
@@ -412,15 +421,14 @@ export default function SafetyInvestmentApp() {
           }
         }
 
-        // 🌟 캡처된 정밀 지도 및 빨간 동그라미 표기를 B6:H35 영역에 삽입
         if (item.mapImage) {
           const mapImgId = workbook.addImage({
             base64: item.mapImage,
             extension: 'png',
           });
           reportSheet.addImage(mapImgId, {
-            tl: { col: 1, row: 5 },  // B6
-            br: { col: 8, row: 35 }, // H35
+            tl: { col: 1, row: 5 },
+            br: { col: 8, row: 35 },
           });
         }
 
@@ -544,44 +552,50 @@ export default function SafetyInvestmentApp() {
               type="text" 
               value={formData.location} 
               onChange={e => setFormData({ ...formData, location: e.target.value })} 
-              placeholder="예: 공도읍 서동대로 3948 또는 진사리 11" 
+              placeholder="예: 경기도 화성시 동탄대로 123" 
               className="w-full p-2.5 bg-slate-50 border rounded-xl text-sm font-semibold outline-none focus:border-blue-500" 
             />
             <span className="text-[10px] text-blue-600 font-medium mt-1 block">
-              💡 지도 위치를 맞추신 후 상단의 <b>[📸 현재 위치도 캡처]</b> 버튼을 누르면 위치도가 적용됩니다.
+              💡 지도 터치 후 <b>[📸 위치도 캡처]</b>를 누르면 엑셀 위치도로 자동 채워집니다.
             </span>
           </div>
 
-          {/* 🗺️ 확대/축소 및 📸 [현재 위치도 캡처] 지원 지도 상자 */}
+          {/* 지도 상자 */}
           <div className="border border-slate-200 rounded-2xl p-3 bg-slate-50 space-y-2">
             <div className="flex flex-wrap justify-between items-center gap-1.5">
               <span className="text-xs font-bold text-slate-800">🗺️ 터치로 🔴 위치 지정</span>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1">
                 <button 
                   type="button" 
                   onClick={handleZoomIn} 
                   className="bg-white border text-xs px-2 py-1 rounded-lg font-bold hover:bg-slate-100 shadow-sm"
                 >
-                  🔍 [+] 확대
+                  🔍 [+]
                 </button>
                 <button 
                   type="button" 
                   onClick={handleZoomOut} 
                   className="bg-white border text-xs px-2 py-1 rounded-lg font-bold hover:bg-slate-100 shadow-sm"
                 >
-                  🔎 [-] 축소
+                  🔎 [-]
+                </button>
+                <button 
+                  type="button" 
+                  onClick={handleOpenGoogleMaps} 
+                  className="bg-slate-800 text-white text-xs px-2.5 py-1 rounded-lg font-bold hover:bg-black shadow-sm flex items-center gap-0.5"
+                >
+                  🗺️ 외부구글지도
                 </button>
                 <button 
                   type="button" 
                   onClick={handleCaptureMap} 
-                  className="bg-blue-600 text-white text-xs px-2.5 py-1 rounded-lg font-bold hover:bg-blue-700 shadow-md flex items-center gap-1"
+                  className="bg-blue-600 text-white text-xs px-2.5 py-1 rounded-lg font-bold hover:bg-blue-700 shadow-md flex items-center gap-0.5"
                 >
-                  📸 현재 위치도 캡처
+                  📸 위치도 캡처
                 </button>
               </div>
             </div>
 
-            {/* 지도 박스 */}
             <div 
               onClick={handleMapClick}
               className="relative w-full h-60 rounded-xl overflow-hidden border border-slate-300 cursor-pointer shadow-inner bg-slate-200"
@@ -592,10 +606,9 @@ export default function SafetyInvestmentApp() {
                 height="100%"
                 loading="lazy"
                 style={{ border: 0, pointerEvents: 'none' }}
-                src={`https://maps.google.com/maps?q=${encodeURIComponent(formData.location || '경기도 안성시 서동대로 3948')}&t=&z=${zoomLevel}&ie=UTF8&iwloc=&output=embed`}
+                src={`https://maps.google.com/maps?q=${encodeURIComponent(formData.location || '경기도 화성시 동탄대로 123')}&t=&z=${zoomLevel}&ie=UTF8&iwloc=&output=embed`}
               />
 
-              {/* 🔴 빨간 동그라미 위치 마커 */}
               <div 
                 className="absolute transform -translate-x-1/2 -translate-y-1/2 pointer-events-none transition-all duration-150 z-10"
                 style={{ left: `${markerPos.x}%`, top: `${markerPos.y}%` }}
@@ -608,7 +621,7 @@ export default function SafetyInvestmentApp() {
 
             {capturedMapImg && (
               <span className="text-[11px] font-bold text-emerald-600 block text-right">
-                ✅ 위치도 캡처 완료! (엑셀에 자동 저장됩니다)
+                ✅ 위치도 캡처 완료! (엑셀 B6:H35 영역 자동 삽입)
               </span>
             )}
           </div>
@@ -636,7 +649,6 @@ export default function SafetyInvestmentApp() {
             </div>
           </div>
 
-          {/* 요청하신 [비고] 입력칸 추가 */}
           <div>
             <label className="text-xs font-bold text-gray-600 block mb-1">비고</label>
             <input 
@@ -648,7 +660,7 @@ export default function SafetyInvestmentApp() {
             />
           </div>
 
-          {/* 현장 사진 첨부 2종 */}
+          {/* 사진 첨부 */}
           <div className="space-y-3 pt-2 border-t">
             <h3 className="text-xs font-bold text-gray-700">📸 현장 사진 첨부 (2종)</h3>
 
@@ -679,7 +691,7 @@ export default function SafetyInvestmentApp() {
           </button>
         </div>
 
-        {/* 등록 목록 & 엑셀 다운로드 */}
+        {/* 목록 & 다운로드 */}
         <div className="bg-white p-6 rounded-3xl shadow-md border border-slate-200 space-y-4">
           <div className="flex justify-between items-center border-b pb-2">
             <h2 className="text-base font-bold text-slate-900">📊 등록 목록 ({items.length}건)</h2>
