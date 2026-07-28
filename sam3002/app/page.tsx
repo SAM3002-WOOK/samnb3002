@@ -64,7 +64,6 @@ export default function SafetyInvestmentApp() {
   const olMapRef = useRef<any>(null);
   const [showInteractiveMap, setShowInteractiveMap] = useState(false);
 
-  // 다음 우편번호 API 및 OpenLayers 라이브러리 스크립트 로드
   useEffect(() => {
     if (!document.getElementById('daum-postcode-script')) {
       const script = document.createElement('script');
@@ -185,7 +184,7 @@ export default function SafetyInvestmentApp() {
       ],
       view: new window.ol.View({
         center: window.ol.proj.fromLonLat([lon, lat]),
-        zoom: 17,
+        zoom: 16,
         maxZoom: 20,
         minZoom: 10,
       }),
@@ -194,7 +193,7 @@ export default function SafetyInvestmentApp() {
     olMapRef.current = map;
   };
 
-  // 🔍 [카카오/다음 공식 주소 검색창 열기]
+  // 🔍 [다단계 정밀 주소 추출 알고리즘 적용]
   const handleOpenDaumPostcode = () => {
     if (!window.daum || !window.daum.Postcode) {
       alert('주소 검색 서비스를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.');
@@ -202,33 +201,43 @@ export default function SafetyInvestmentApp() {
     }
 
     new window.daum.Postcode({
-      oncomplete: function (data) {
+      oncomplete: async function (data) {
         const fullAddress = data.roadAddress || data.jibunAddress;
         setFormData((prev) => ({ ...prev, location: fullAddress }));
 
-        // 선택한 카카오 공식 주소를 기반으로 정확한 좌표 추출
-        fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent('대한민국 ' + fullAddress)}&limit=1`, {
-          headers: { 'User-Agent': 'SamchullySafetyApp/1.0' },
-        })
-          .then((res) => res.json())
-          .then((geoData) => {
-            let lat = 36.9921;
-            let lon = 127.1128;
-            if (geoData && geoData.length > 0) {
-              lat = parseFloat(geoData[0].lat);
-              lon = parseFloat(geoData[0].lon);
+        // 평택시청으로 튕기지 않는 다단계 파싱 지오코딩
+        const candidates = [
+          fullAddress,
+          `${data.sido} ${data.sigungu} ${data.roadname}`,
+          `${data.sido} ${data.sigungu} ${data.bname}`,
+          `${data.sido} ${data.sigungu}`,
+        ];
+
+        let targetLat = 36.9921;
+        let targetLon = 127.1128;
+        let isFound = false;
+
+        for (const query of candidates) {
+          if (!query.trim()) continue;
+          try {
+            const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent('대한민국 ' + query)}&limit=1`;
+            const res = await fetch(url, { headers: { 'User-Agent': 'SamchullySafetyApp/1.0' } });
+            const geoData = await res.json();
+            if (geoData && geoData.length > 0 && geoData[0].lat && geoData[0].lon) {
+              targetLat = parseFloat(geoData[0].lat);
+              targetLon = parseFloat(geoData[0].lon);
+              isFound = true;
+              break;
             }
-            setShowInteractiveMap(true);
-            setTimeout(() => {
-              initInteractiveMap(lon, lat);
-            }, 100);
-          })
-          .catch(() => {
-            setShowInteractiveMap(true);
-            setTimeout(() => {
-              initInteractiveMap(127.1128, 36.9921);
-            }, 100);
-          });
+          } catch (e) {
+            console.warn('Geocoding search warning:', query, e);
+          }
+        }
+
+        setShowInteractiveMap(true);
+        setTimeout(() => {
+          initInteractiveMap(targetLon, targetLat);
+        }, 100);
       },
     }).open();
   };
@@ -295,6 +304,7 @@ export default function SafetyInvestmentApp() {
       const finalDataUrl = mapCanvas.toDataURL('image/png');
       setMarkedMapImage(finalDataUrl);
       setRawMapImage(finalDataUrl);
+      alert('📸 조정한 지도 화면이 정상적으로 캡처되어 엑셀 저장용으로 지정되었습니다!');
     });
 
     olMapRef.current.renderSync();
@@ -749,7 +759,7 @@ export default function SafetyInvestmentApp() {
             </div>
           </div>
 
-          {/* ⚡ 카카오 내장 지도 구역 */}
+          {/* ⚡ 카카오 연동 지도 구역 */}
           <div className="border border-blue-200 rounded-2xl p-4 bg-blue-50/40 space-y-3">
             <div className="flex justify-between items-center">
               <div>
