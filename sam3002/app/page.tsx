@@ -60,13 +60,11 @@ export default function SafetyInvestmentApp() {
   const [isMapLoading, setIsMapLoading] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // 🗺️ 스마트 대화형 지도 관련 Ref & State
+  // 🗺️ 스마트 대화형 지도 관련 Ref
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const olMapRef = useRef<any>(null);
-  const [mapCenter, setMapCenter] = useState<[number, number]>([127.1128, 36.9921]);
   const [showInteractiveMap, setShowInteractiveMap] = useState(false);
 
-  // OpenLayers 스크립트 dynamic 로드
   useEffect(() => {
     if (!document.getElementById('ol-css')) {
       const link = document.createElement('link');
@@ -83,7 +81,6 @@ export default function SafetyInvestmentApp() {
     }
   }, []);
 
-  // 👤 1. 작성자 이름 및 목록 복구
   useEffect(() => {
     try {
       const savedWriter = localStorage.getItem(WRITER_KEY);
@@ -109,7 +106,6 @@ export default function SafetyInvestmentApp() {
     }
   }, []);
 
-  // 💾 2. 자동 저장
   useEffect(() => {
     if (!isLoaded) return;
     try {
@@ -162,7 +158,7 @@ export default function SafetyInvestmentApp() {
     }));
   };
 
-  // 🗺️ 대화형 지도 초기화 (마우스 휠 줌 & 드래그 가능)
+  // 🗺️ 지도 초기화 (알림창 없이 바로 조작)
   const initInteractiveMap = (lon: number, lat: number) => {
     if (!mapContainerRef.current || !window.ol) return;
 
@@ -192,7 +188,7 @@ export default function SafetyInvestmentApp() {
     olMapRef.current = map;
   };
 
-  // ⚡ 주소 정밀 지오코딩 및 지도 생성
+  // ⚡ 알림창 없는 한국 국토부 VWorld 기반 정밀 지도 조작 화면
   const handleAutoGenerateMap = async () => {
     if (!formData.location) {
       alert('설치장소(주소)를 먼저 입력해 주세요.');
@@ -206,16 +202,12 @@ export default function SafetyInvestmentApp() {
       const data = await res.json();
 
       if (data.success && data.lat && data.lon) {
-        setMapCenter([data.lon, data.lat]);
         setShowInteractiveMap(true);
-
         setTimeout(() => {
           initInteractiveMap(data.lon, data.lat);
-        }, 100);
-
-        alert('✨ 네이버/카카오 연동 지도 검색 완료!\n마우스 휠로 확대/축소 및 드래그하여 정확한 위치를 정해 보세요.');
+        }, 80);
       } else {
-        alert('주소를 정확히 찾지 못했습니다. 도로명/지번을 확인해 보세요.');
+        alert('주소를 정확히 찾지 못했습니다. 설치장소(주소)를 확인해 주세요.');
       }
     } catch (e) {
       console.error(e);
@@ -225,7 +217,7 @@ export default function SafetyInvestmentApp() {
     }
   };
 
-  // 📸 현재 확대/축소 상태 그대로 엑셀용 이미지 캡처
+  // 📸 현재 조정한 화면 그대로 엑셀 저장용 캡처 (알림창 제거)
   const handleCaptureCurrentMap = () => {
     if (!olMapRef.current) return;
 
@@ -253,7 +245,6 @@ export default function SafetyInvestmentApp() {
         }
       );
 
-      // 🔴 중앙 마커 및 라벨 합성
       const ctx = mapCanvas.getContext('2d');
       const width = mapCanvas.width;
       const height = mapCanvas.height;
@@ -286,7 +277,6 @@ export default function SafetyInvestmentApp() {
       const finalDataUrl = mapCanvas.toDataURL('image/png');
       setMarkedMapImage(finalDataUrl);
       setRawMapImage(finalDataUrl);
-      alert('📸 현재 확대 비율과 화면이 성공적으로 캡처되었습니다!');
     });
 
     olMapRef.current.renderSync();
@@ -365,7 +355,6 @@ export default function SafetyInvestmentApp() {
     }
   };
 
-  // 📊 엑셀 다운로드
   const exportToExcel = async () => {
     if (items.length === 0) {
       alert('다운로드할 데이터가 없습니다.');
@@ -733,12 +722,12 @@ export default function SafetyInvestmentApp() {
             />
           </div>
 
-          {/* ⚡ 스마트 대화형 지도 구역 */}
+          {/* ⚡ 스마트 지도 구역 */}
           <div className="border border-blue-200 rounded-2xl p-4 bg-blue-50/40 space-y-3">
             <div className="flex justify-between items-center">
               <div>
                 <span className="text-xs font-bold text-blue-900 block">🗺️ 위치도 스마트 지도</span>
-                <span className="text-[10px] text-gray-500">주소 입력 후 아래 버튼을 터치하세요. (마우스 휠 줌/드래그 가능)</span>
+                <span className="text-[10px] text-gray-500">주소 입력 후 아래 버튼을 터치하세요. (마우스 휠 줌/드래그 지원)</span>
               </div>
             </div>
 
@@ -748,20 +737,18 @@ export default function SafetyInvestmentApp() {
               disabled={isMapLoading}
               className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold py-3 px-4 rounded-xl shadow-sm transition flex items-center justify-center gap-2 text-xs"
             >
-              {isMapLoading ? '⏳ 위치 정밀 검색 중...' : '⚡ 주소 정밀 검색 및 지도 조작 화면 열기'}
+              {isMapLoading ? '⏳ 주소 정밀 검색 중...' : '⚡ 주소 정밀 검색 및 지도 조작 화면 열기'}
             </button>
 
             {showInteractiveMap && (
               <div className="space-y-2 pt-1">
                 <span className="text-[11px] font-bold text-blue-700 block">
-                  👉 <b>마우스 휠로 확대/축소</b> 및 <b>드래그</b>로 원하시는 영역을 맞춘 후 아래 [현재 화면 캡처] 버튼을 누르세요.
+                  👉 <b>마우스 휠로 확대/축소</b> 및 <b>드래그</b>로 원하시는 위치를 맞춘 후 [현재 화면 캡처] 버튼을 누르세요.
                 </span>
 
                 <div className="relative w-full h-72 rounded-2xl overflow-hidden border-2 border-blue-400 shadow-md">
-                  {/* 지도 컨테이너 */}
                   <div ref={mapContainerRef} className="w-full h-full bg-slate-100" />
 
-                  {/* 중앙 고정 🔴 타겟 마커 및 주소 라벨 */}
                   <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
                     <div className="relative">
                       <div className="w-8 h-8 rounded-full bg-red-500/30 border-2 border-red-600 animate-ping absolute -translate-x-1/2 -translate-y-1/2" />
