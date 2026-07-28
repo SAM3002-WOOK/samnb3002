@@ -178,7 +178,7 @@ export default function SafetyInvestmentApp() {
     }
 
     const newItem = {
-      id: items.length + 1,
+      id: Date.now(), // 고유 ID
       ...formData,
       date: new Date().toISOString().split('T')[0],
       mapImage: markedMapImage || rawMapImage,
@@ -204,6 +204,13 @@ export default function SafetyInvestmentApp() {
     setFullImage(null);
     setDetailImage(null);
     alert('목록에 성공적으로 추가되었습니다!');
+  };
+
+  // 🗑️ 등록 목록 개별 삭제 기능
+  const handleDeleteItem = (idToDelete: number) => {
+    if (confirm('해당 항목을 목록에서 삭제하시겠습니까?')) {
+      setItems(items.filter((item) => item.id !== idToDelete));
+    }
   };
 
   // 📊 엑셀 파일 다운로드
@@ -515,12 +522,12 @@ export default function SafetyInvestmentApp() {
     <div className="min-h-screen bg-slate-100 py-6 px-4 font-sans text-gray-800">
       <div className="max-w-2xl mx-auto space-y-6">
         
-        {/* 헤더 */}
+        {/* 헤더 (타이틀 변경: 안전관리 투자 사업계획 등록 시스템) */}
         <div className="bg-white p-5 rounded-3xl shadow-sm text-center border border-slate-200 space-y-2">
           <div className="flex justify-center">
             <img src="/logo.png" alt="삼천리 로고" className="h-10 object-contain" />
           </div>
-          <h1 className="text-2xl font-black text-slate-900">안전투자 사업계획 등록 시스템</h1>
+          <h1 className="text-2xl font-black text-slate-900">안전관리 투자 사업계획 등록 시스템</h1>
         </div>
 
         {/* 입력 폼 */}
@@ -702,7 +709,7 @@ export default function SafetyInvestmentApp() {
           </button>
         </div>
 
-        {/* 목록 & 다운로드 */}
+        {/* 목록 & 개별 삭제 기능이 추가된 등록 목록 섹션 */}
         <div className="bg-white p-6 rounded-3xl shadow-md border border-slate-200 space-y-4">
           <div className="flex justify-between items-center border-b pb-2">
             <h2 className="text-base font-bold text-slate-900">📊 등록 목록 ({items.length}건)</h2>
@@ -725,7 +732,15 @@ export default function SafetyInvestmentApp() {
                     <span className="font-bold text-blue-900">[{item.facilityNo}] {item.facilityName}</span>
                     <p className="text-gray-500 mt-0.5">{item.location} | {item.category} ({item.workName} - {item.detailWork})</p>
                   </div>
-                  <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-lg font-bold">#{idx + 1}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-lg font-bold">#{idx + 1}</span>
+                    <button
+                      onClick={() => handleDeleteItem(item.id)}
+                      className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-2.5 py-1 rounded-lg font-bold text-[11px] transition"
+                    >
+                      🗑️ 삭제
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
