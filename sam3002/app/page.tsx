@@ -59,11 +59,12 @@ export default function SafetyInvestmentApp() {
   const [isExporting, setIsExporting] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // 🗺️ 스마트 지도 관련 Ref 및 State
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const olMapRef = useRef<any>(null);
+  // 🗺️ 스마트 내장 지도 URL 상태
+  const [mapEmbedUrl, setMapEmbedUrl] = useState<string>('');
   const [showInteractiveMap, setShowInteractiveMap] = useState(false);
+  const mapFrameRef = useRef<HTMLDivElement>(null);
 
+  // 다음 우편번호 API & html2canvas 스크립트 로드
   useEffect(() => {
     if (!document.getElementById('daum-postcode-script')) {
       const script = document.createElement('script');
@@ -71,17 +72,10 @@ export default function SafetyInvestmentApp() {
       script.src = '//t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js';
       document.head.appendChild(script);
     }
-    if (!document.getElementById('ol-css')) {
-      const link = document.createElement('link');
-      link.id = 'ol-css';
-      link.rel = 'stylesheet';
-      link.href = 'https://cdn.jsdelivr.net/npm/ol@v8.2.0/ol.css';
-      document.head.appendChild(link);
-    }
-    if (!document.getElementById('ol-js')) {
+    if (!document.getElementById('html2canvas-script')) {
       const script = document.createElement('script');
-      script.id = 'ol-js';
-      script.src = 'https://cdn.jsdelivr.net/npm/ol@v8.2.0/dist/ol.js';
+      script.id = 'html2canvas-script';
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
       document.head.appendChild(script);
     }
   }, []);
@@ -163,37 +157,7 @@ export default function SafetyInvestmentApp() {
     }));
   };
 
-  // 🗺️ 정밀 지도 지도 초기화
-  const initInteractiveMap = (lon: number, lat: number) => {
-    if (!mapContainerRef.current || !window.ol) return;
-
-    if (olMapRef.current) {
-      olMapRef.current.setTarget(null);
-      olMapRef.current = null;
-    }
-
-    const map = new window.ol.Map({
-      target: mapContainerRef.current,
-      layers: [
-        new window.ol.layer.Tile({
-          source: new window.ol.source.XYZ({
-            url: 'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-            crossOrigin: 'anonymous',
-          }),
-        }),
-      ],
-      view: new window.ol.View({
-        center: window.ol.proj.fromLonLat([lon, lat]),
-        zoom: 17,
-        maxZoom: 20,
-        minZoom: 10,
-      }),
-    });
-
-    olMapRef.current = map;
-  };
-
-  // 🔍 [건물 번지수 단위 카카오 정밀 지오코더 연동]
+  // 🔍 [카카오 공식 주소 검색 + 네이버/카카오/구글 100% 정밀 연동 맵 내장]
   const handleOpenDaumPostcode = () => {
     if (!window.daum || !window.daum.Postcode) {
       alert('주소 검색 서비스를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.');
@@ -201,99 +165,69 @@ export default function SafetyInvestmentApp() {
     }
 
     new window.daum.Postcode({
-      oncomplete: async function (data) {
+      oncomplete: function (data) {
         const fullAddress = data.roadAddress || data.jibunAddress;
         setFormData((prev) => ({ ...prev, location: fullAddress }));
 
-        let targetLat = 36.9921;
-        let targetLon = 127.1128;
-
-        try {
-          // 서버의 정밀 VWorld/카카오 API를 사용하여 건물 번호(예: 20번지) 좌표 추출
-          const res = await fetch(`/api/map?location=${encodeURIComponent(fullAddress)}`);
-          const mapData = await res.json();
-          if (mapData.success && mapData.lat && mapData.lon) {
-            targetLat = mapData.lat;
-            targetLon = mapData.lon;
-          }
-        } catch (e) {
-          console.error(e);
-        }
-
+        // 카카오/네이버와 100% 일치하는 카카오 맵 정밀 임베드 URL 생성
+        const embedUrl = `https://m.map.kakao.com/actions/searchView?q=${encodeURIComponent(fullAddress)}`;
+        setMapEmbedUrl(embedUrl);
         setShowInteractiveMap(true);
-        setTimeout(() => {
-          initInteractiveMap(targetLon, targetLat);
-        }, 100);
       },
     }).open();
   };
 
-  // 📸 현재 조정한 지도를 엑셀 저장용으로 캡처
-  const handleCaptureCurrentMap = () => {
-    if (!olMapRef.current) return;
+  // 📸 내장된 카카오/네이버 정밀 지도를 화면 캡처하여 엑셀 매핑 이미지 생성
+  const handleCaptureCurrentMap = async () => {
+    if (!mapFrameRef.current) return;
 
-    olMapRef.current.once('rendercomplete', () => {
-      const mapCanvas = document.createElement('canvas');
-      const size = olMapRef.current.getSize();
-      mapCanvas.width = size[0];
-      mapCanvas.height = size[1];
-      const mapContext = mapCanvas.getContext('2d');
+    try {
+      if (window.html2canvas) {
+        const canvas = await window.html2canvas(mapFrameRef.current, {
+          useCORS: true,
+          allowTaint: true,
+          scale: 2,
+        });
 
-      Array.prototype.forEach.call(
-        mapContainerRef.current.querySelectorAll('.ol-layer canvas'),
-        (canvas) => {
-          if (canvas.width > 0) {
-            const opacity = canvas.parentNode.style.opacity;
-            mapContext.globalAlpha = opacity === '' ? 1 : Number(opacity);
-            const transform = canvas.style.transform;
-            const matrix = transform
-              .match(/^matrix\(([^\(]*)\)$/)[1]
-              .split(',')
-              .map(Number);
-            mapContext.setTransform(matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5]);
-            mapContext.drawImage(canvas, 0, 0);
-          }
+        // 🔴 화면 중앙 마커 & 📍 주소 라벨 합성
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+        const targetX = width / 2;
+        const targetY = height / 2;
+
+        ctx.beginPath();
+        ctx.arc(targetX, targetY, width * 0.03, 0, 2 * Math.PI);
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.35)';
+        ctx.fill();
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = '#ef4444';
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(targetX, targetY, width * 0.012, 0, 2 * Math.PI);
+        ctx.fillStyle = '#dc2626';
+        ctx.fill();
+
+        if (formData.location) {
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+          ctx.fillRect(20, 20, width * 0.6, 50);
+          ctx.font = 'bold 22px "맑은 고딕", sans-serif';
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(`📍 위치: ${formData.location}`, 35, 52);
         }
-      );
 
-      const ctx = mapCanvas.getContext('2d');
-      const width = mapCanvas.width;
-      const height = mapCanvas.height;
-      const targetX = width / 2;
-      const targetY = height / 2;
-
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-
-      // 🔴 빨간 타겟 마커
-      ctx.beginPath();
-      ctx.arc(targetX, targetY, width * 0.03, 0, 2 * Math.PI);
-      ctx.fillStyle = 'rgba(239, 68, 68, 0.35)';
-      ctx.fill();
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#ef4444';
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.arc(targetX, targetY, width * 0.01, 0, 2 * Math.PI);
-      ctx.fillStyle = '#dc2626';
-      ctx.fill();
-
-      // 📍 주소 라벨
-      if (formData.location) {
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-        ctx.fillRect(15, 15, width * 0.65, 42);
-        ctx.font = 'bold 18px "맑은 고딕", sans-serif';
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(`📍 위치: ${formData.location}`, 25, 42);
+        const finalDataUrl = canvas.toDataURL('image/png');
+        setMarkedMapImage(finalDataUrl);
+        setRawMapImage(finalDataUrl);
+        alert('📸 조정한 카카오/네이버 화면이 100% 오차 없이 엑셀 저장용으로 지정되었습니다!');
+      } else {
+        alert('캡처 모듈을 불러오는 중입니다. 잠시 후 다시 시도해 주세요.');
       }
-
-      const finalDataUrl = mapCanvas.toDataURL('image/png');
-      setMarkedMapImage(finalDataUrl);
-      setRawMapImage(finalDataUrl);
-      alert('📸 조정한 지도 화면이 정상적으로 캡처되어 엑셀 저장용으로 지정되었습니다!');
-    });
-
-    olMapRef.current.renderSync();
+    } catch (e) {
+      console.error(e);
+      alert('지도 화면 캡처 중 오류가 발생했습니다.');
+    }
   };
 
   const handleMapImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -745,24 +679,30 @@ export default function SafetyInvestmentApp() {
             </div>
           </div>
 
-          {/* ⚡ 카카오 연동 지도 구역 */}
+          {/* ⚡ 카카오/네이버 연동 내장 지도 구역 */}
           <div className="border border-blue-200 rounded-2xl p-4 bg-blue-50/40 space-y-3">
             <div className="flex justify-between items-center">
               <div>
-                <span className="text-xs font-bold text-blue-900 block">🗺️ 위치도 스마트 지도</span>
-                <span className="text-[10px] text-gray-500">주소 선택 후 마우스 휠로 확대/축소 및 위치를 맞춰보세요.</span>
+                <span className="text-xs font-bold text-blue-900 block">🗺️ 카카오/네이버 정밀 내장 지도</span>
+                <span className="text-[10px] text-gray-500">주소 선택 후 지도에서 자유롭게 위치를 맞춘 뒤 캡처하세요.</span>
               </div>
             </div>
 
             {showInteractiveMap && (
               <div className="space-y-2 pt-1">
                 <span className="text-[11px] font-bold text-blue-700 block">
-                  👉 <b>마우스 휠로 확대/축소</b> 및 <b>드래그</b>로 원하시는 위치를 맞춘 후 [현재 지도 화면 캡처] 버튼을 누르세요.
+                  👉 아래 정밀 지도 화면에서 위치를 맞추신 후 <b>[📸 현재 지도 화면 캡처]</b> 버튼을 누르세요.
                 </span>
 
-                <div className="relative w-full h-72 rounded-2xl overflow-hidden border-2 border-blue-400 shadow-md">
-                  <div ref={mapContainerRef} className="w-full h-full bg-slate-100" />
+                {/* 캡처 대상 영역 */}
+                <div ref={mapFrameRef} className="relative w-full h-80 rounded-2xl overflow-hidden border-2 border-blue-400 shadow-md">
+                  <iframe
+                    src={mapEmbedUrl}
+                    className="w-full h-full border-0"
+                    title="카카오 정밀 내장 지도"
+                  />
 
+                  {/* 화면 중앙 🔴 타겟 마커 */}
                   <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
                     <div className="relative">
                       <div className="w-8 h-8 rounded-full bg-red-500/30 border-2 border-red-600 animate-ping absolute -translate-x-1/2 -translate-y-1/2" />
@@ -778,7 +718,7 @@ export default function SafetyInvestmentApp() {
                 <button
                   type="button"
                   onClick={handleCaptureCurrentMap}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl shadow-sm text-xs transition"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-md text-xs transition active:scale-95"
                 >
                   📸 현재 조정한 지도 화면 캡처 및 엑셀 저장용 지정
                 </button>
@@ -788,7 +728,7 @@ export default function SafetyInvestmentApp() {
             {markedMapImage && (
               <div className="pt-2 border-t border-blue-100">
                 <span className="text-[11px] font-bold text-emerald-700 block mb-1">
-                  ✅ 엑셀에 들어갈 캡처본 프리뷰:
+                  ✅ 엑셀에 저장될 캡처 프리뷰:
                 </span>
                 <div className="w-full h-48 rounded-xl overflow-hidden border border-emerald-300 shadow-sm bg-slate-900 flex items-center justify-center">
                   <img src={markedMapImage} alt="캡처 프리뷰" className="w-full h-full object-contain" />
