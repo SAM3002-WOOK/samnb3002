@@ -34,14 +34,17 @@ const INVESTMENT_DATA = {
   },
 };
 
+const STORAGE_KEY = 'samchully_safety_items_v1';
+const EXPIRATION_MS = 48 * 60 * 60 * 1000; // 48시간 보관
+
 export default function SafetyInvestmentApp() {
   const [formData, setFormData] = useState({
     facilityNo: '',
     facilityName: '',
     location: '',
-    category: '정압기', // 시설물 기본값
-    workName: '도색',   // 작업명 기본값
-    detailWork: '전체 도색', // 세부내역 기본값
+    category: '정압기',
+    workName: '도색',
+    detailWork: '전체 도색',
     reason: '',
     writer: '',
     remark: '',
@@ -54,6 +57,48 @@ export default function SafetyInvestmentApp() {
   const [detailImage, setDetailImage] = useState<string | null>(null);
   const [items, setItems] = useState<any[]>([]);
   const [isExporting, setIsExporting] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  // 💾 1. 앱 켜질 때 브라우저 저장소에서 데이터 복구 (48시간 유효검사)
+  useEffect(() => {
+    try {
+      const savedData = localStorage.getItem(STORAGE_KEY);
+      if (savedData) {
+        const parsed = JSON.parse(savedData);
+        if (parsed.timestamp && Date.now() - parsed.timestamp < EXPIRATION_MS) {
+          if (Array.isArray(parsed.items) && parsed.items.length > 0) {
+            setItems(parsed.items);
+          }
+        } else {
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      }
+    } catch (e) {
+      console.error('로컬 데이터 불러오기 실패', e);
+    } finally {
+      setIsLoaded(true);
+    }
+  }, []);
+
+  // 💾 2. 목록이 변경될 때마다 브라우저 저장소에 자동 저장
+  useEffect(() => {
+    if (!isLoaded) return;
+    try {
+      if (items.length > 0) {
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({
+            timestamp: Date.now(),
+            items: items,
+          })
+        );
+      } else {
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    } catch (e) {
+      console.error('로컬 데이터 저장 실패', e);
+    }
+  }, [items, isLoaded]);
 
   // 🔄 시설물 변경 시 작업명 및 세부내역 자동 갱신
   useEffect(() => {
@@ -178,7 +223,7 @@ export default function SafetyInvestmentApp() {
     }
 
     const newItem = {
-      id: Date.now(), // 고유 ID
+      id: Date.now(),
       ...formData,
       date: new Date().toISOString().split('T')[0],
       mapImage: markedMapImage || rawMapImage,
@@ -203,13 +248,21 @@ export default function SafetyInvestmentApp() {
     setMarkedMapImage(null);
     setFullImage(null);
     setDetailImage(null);
-    alert('목록에 성공적으로 추가되었습니다!');
+    alert('목록에 성공적으로 추가되었습니다! (자동 저장됨)');
   };
 
   // 🗑️ 등록 목록 개별 삭제 기능
   const handleDeleteItem = (idToDelete: number) => {
     if (confirm('해당 항목을 목록에서 삭제하시겠습니까?')) {
       setItems(items.filter((item) => item.id !== idToDelete));
+    }
+  };
+
+  // 🧹 등록 목록 전체 초기화 기능
+  const handleClearAllItems = () => {
+    if (confirm('등록된 모든 목록을 삭제하시겠습니까? (복구할 수 없습니다)')) {
+      setItems([]);
+      localStorage.removeItem(STORAGE_KEY);
     }
   };
 
@@ -522,7 +575,7 @@ export default function SafetyInvestmentApp() {
     <div className="min-h-screen bg-slate-100 py-6 px-4 font-sans text-gray-800">
       <div className="max-w-2xl mx-auto space-y-6">
         
-        {/* 헤더 (타이틀 변경: 안전관리 투자 사업계획 등록 시스템) */}
+        {/* 헤더 */}
         <div className="bg-white p-5 rounded-3xl shadow-sm text-center border border-slate-200 space-y-2">
           <div className="flex justify-center">
             <img src="/logo.png" alt="삼천리 로고" className="h-10 object-contain" />
@@ -709,17 +762,37 @@ export default function SafetyInvestmentApp() {
           </button>
         </div>
 
-        {/* 목록 & 개별 삭제 기능이 추가된 등록 목록 섹션 */}
+        {/* 📊 등록 목록 섹션 (제목 옆 48시간 안내문구 적용) */}
         <div className="bg-white p-6 rounded-3xl shadow-md border border-slate-200 space-y-4">
           <div className="flex justify-between items-center border-b pb-2">
-            <h2 className="text-base font-bold text-slate-900">📊 등록 목록 ({items.length}건)</h2>
-            <button 
-              onClick={exportToExcel} 
-              disabled={isExporting}
-              className="bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-300 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-md flex items-center gap-1"
-            >
-              {isExporting ? '⏳ 엑셀 생성 중...' : '📥 엑셀 다운로드'}
-            </button>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-slate-900">📊 등록 목록 ({items.length}건)</h2>
+                <span className="text-[10px] font-bold text-rose-500 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
+                  ⏱️ 48시간 후 자동 삭제됨
+                </span>
+              </div>
+              <span className="text-[10px] text-emerald-600 font-bold block mt-1">
+                💾 브라우저에 임시로 안전하게 자동 저장됩니다.
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {items.length > 0 && (
+                <button
+                  onClick={handleClearAllItems}
+                  className="bg-slate-100 hover:bg-red-50 text-slate-600 hover:text-red-600 border border-slate-200 hover:border-red-200 text-xs font-bold px-2.5 py-2 rounded-xl transition"
+                >
+                  🧹 전체 비우기
+                </button>
+              )}
+              <button 
+                onClick={exportToExcel} 
+                disabled={isExporting}
+                className="bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-300 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-md flex items-center gap-1"
+              >
+                {isExporting ? '⏳ 엑셀 생성 중...' : '📥 엑셀 다운로드'}
+              </button>
+            </div>
           </div>
 
           {items.length === 0 ? (
