@@ -239,15 +239,29 @@ export default function SafetyInvestmentApp() {
     img.src = sourceImgSrc;
   };
 
+  // 📸 현장 사진 업로드 (Canvas 정방향 보정 - 사진 눕는 현상 해결!)
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string | null) => void) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setter(reader.result as string);
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64Img = reader.result as string;
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0, img.width, img.height);
+
+        setter(canvas.toDataURL('image/png'));
       };
-      reader.readAsDataURL(file);
-    }
+      img.src = base64Img;
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleAddToList = async () => {
@@ -533,6 +547,7 @@ export default function SafetyInvestmentApp() {
           reportSheet.addImage(mapImgId, {
             tl: { col: 1, row: 5 },
             br: { col: 8, row: 35 },
+            editAs: 'oneCell'
           });
         }
 
@@ -558,7 +573,7 @@ export default function SafetyInvestmentApp() {
 
         reportSheet.mergeCells('C60:H79');
 
-        // 2. 📸 전경 사진 (C39:H59 영역 ➔ row: 38 ~ 59)
+        // 2. 📸 전경 사진 (C39:H59 영역) - ⭐ editAs: 'oneCell' 비율유지 적용!
         if (item.fullImage) {
           const img1 = workbook.addImage({
             base64: item.fullImage,
@@ -567,10 +582,11 @@ export default function SafetyInvestmentApp() {
           reportSheet.addImage(img1, {
             tl: { col: 2, row: 38 },
             br: { col: 8, row: 59 },
+            editAs: 'oneCell'
           });
         }
 
-        // 3. 📸 상세 사진 (C60:H79 영역 ➔ row: 59 ~ 79) - ⭐ 위치 오류 완벽 수정!
+        // 3. 📸 상세 사진 (C60:H79 영역) - ⭐ editAs: 'oneCell' 비율유지 적용!
         if (item.detailImage) {
           const img2 = workbook.addImage({
             base64: item.detailImage,
@@ -579,6 +595,7 @@ export default function SafetyInvestmentApp() {
           reportSheet.addImage(img2, {
             tl: { col: 2, row: 59 },
             br: { col: 8, row: 79 },
+            editAs: 'oneCell'
           });
         }
       }
