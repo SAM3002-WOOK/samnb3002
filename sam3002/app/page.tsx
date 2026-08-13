@@ -265,8 +265,27 @@ export default function SafetyInvestmentApp() {
   };
 
   const handleAddToList = async () => {
+    // 1. 텍스트 필수값 검증
     if (!formData.facilityNo || !formData.facilityName || !formData.location) {
       alert('시설번호, 시설명, 설치장소를 입력해주세요.');
+      return;
+    }
+
+    // 2. 📸 사진 3종 필수 첨부 검증 (지도, 전경, 상세 사진)
+    const currentMapImage = markedMapImage || rawMapImage;
+
+    if (!currentMapImage) {
+      alert('🗺️ 지도 사진(위치도)을 등록해 주세요.');
+      return;
+    }
+
+    if (!fullImage) {
+      alert('📸 전경 사진을 등록해 주세요.');
+      return;
+    }
+
+    if (!detailImage) {
+      alert('📸 상세 사진을 등록해 주세요.');
       return;
     }
 
@@ -274,7 +293,7 @@ export default function SafetyInvestmentApp() {
       id: Date.now(),
       ...formData,
       date: new Date().toISOString().split('T')[0],
-      mapImage: markedMapImage || rawMapImage,
+      mapImage: currentMapImage,
       fullImage,
       detailImage,
     };
@@ -573,7 +592,7 @@ export default function SafetyInvestmentApp() {
 
         reportSheet.mergeCells('C60:H79');
 
-        // 2. 📸 전경 사진 (C39:H59 영역) - ⭐ editAs: 'oneCell' 비율유지 적용!
+        // 2. 📸 전경 사진 (C39:H59 영역)
         if (item.fullImage) {
           const img1 = workbook.addImage({
             base64: item.fullImage,
@@ -586,7 +605,7 @@ export default function SafetyInvestmentApp() {
           });
         }
 
-        // 3. 📸 상세 사진 (C60:H79 영역) - ⭐ editAs: 'oneCell' 비율유지 적용!
+        // 3. 📸 상세 사진 (C60:H79 영역)
         if (item.detailImage) {
           const img2 = workbook.addImage({
             base64: item.detailImage,
