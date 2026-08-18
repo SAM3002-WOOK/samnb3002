@@ -59,6 +59,12 @@ export default function SafetyInvestmentApp() {
   const [isExporting, setIsExporting] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
+  // 🤖 AI 표준항목 추천 상태
+  const [aiText, setAiText] = useState('');
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [aiCandidates, setAiCandidates] = useState<any[]>([]);
+  const [aiMessage, setAiMessage] = useState('');
+
   useEffect(() => {
     try {
       const savedWriter = localStorage.getItem(WRITER_KEY);
@@ -139,18 +145,25 @@ export default function SafetyInvestmentApp() {
     }
   };
 
-  useEffect(() => {
-    const availableWorks = Object.keys(INVESTMENT_DATA[formData.category] || {});
+  // 🏗️ 시설물을 직접 바꿀 때 작업명/세부내역을 첫 항목으로 맞춤
+  // AI가 3개 값을 한 번에 적용할 때 값이 다시 초기화되지 않도록 useEffect 대신 함수로 처리
+  const handleCategoryChange = (category: string) => {
+    const availableWorks = Object.keys(INVESTMENT_DATA[category] || {});
     const firstWork = availableWorks[0] || '';
-    const availableDetails = INVESTMENT_DATA[formData.category]?.[firstWork] || [];
+    const availableDetails = INVESTMENT_DATA[category]?.[firstWork] || [];
     const firstDetail = availableDetails[0] || '';
 
     setFormData((prev) => ({
       ...prev,
+      category,
       workName: firstWork,
       detailWork: firstDetail,
     }));
-  }, [formData.category]);
+
+    // 사용자가 직접 시설물을 바꾸면 이전 AI 추천 표시는 정리
+    setAiCandidates([]);
+    setAiMessage('');
+  };
 
   const handleWorkNameChange = (work: string) => {
     const availableDetails = INVESTMENT_DATA[formData.category]?.[work] || [];
@@ -161,6 +174,76 @@ export default function SafetyInvestmentApp() {
       workName: work,
       detailWork: firstDetail,
     }));
+  };
+
+  // 🤖 AI 추천 결과를 기존 3단 드롭다운에 적용
+  const applyAiCandidate = (candidate: any) => {
+    if (!candidate) return;
+
+    setFormData((prev) => ({
+      ...prev,
+      category: candidate.category,
+      workName: candidate.workName,
+      detailWork: candidate.detailWork,
+    }));
+
+    setAiMessage(
+      `✅ AI 추천 적용: ${candidate.category} > ${candidate.workName} > ${candidate.detailWork}`
+    );
+  };
+
+  // 🤖 현장 표현을 Gemini API로 보내 회사 표준항목 추천
+  const handleAiClassify = async () => {
+    const text = aiText.trim();
+
+    if (!text) {
+      setAiMessage('현장 상황을 한 문장으로 입력해 주세요.');
+      return;
+    }
+
+    setIsAiLoading(true);
+    setAiCandidates([]);
+    setAiMessage('');
+
+    try {
+      const response = await fetch('/api/ai-classify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data?.success) {
+        setAiMessage(
+          data?.error || 'AI 추천을 불러오지 못했습니다. 아래에서 직접 선택해 주세요.'
+        );
+        return;
+      }
+
+      if (data.unsupported || !Array.isArray(data.candidates) || data.candidates.length === 0) {
+        setAiMessage('🤔 알맞은 표준항목을 찾기 어렵습니다. 아래에서 직접 선택해 주세요.');
+        return;
+      }
+
+      setAiCandidates(data.candidates);
+
+      // 후보가 하나이고 명확하면 기존 드롭다운에 즉시 추천값 적용
+      if (!data.ambiguous && data.candidates.length === 1) {
+        applyAiCandidate(data.candidates[0]);
+        return;
+      }
+
+      // 애매한 경우에는 사용자가 후보 버튼을 눌러 최종 선택
+      setAiMessage('🤖 비슷한 표준항목이 있습니다. 아래 후보 중 가장 맞는 항목을 선택해 주세요.');
+    } catch (error) {
+      console.error('AI 표준항목 추천 실패', error);
+      setAiMessage('AI 연결이 원활하지 않습니다. 아래에서 직접 선택해 주세요.');
+    } finally {
+      setIsAiLoading(false);
+    }
   };
 
   // 🗺️ 네이버 지도 새창 오픈
@@ -315,6 +398,9 @@ export default function SafetyInvestmentApp() {
     setMarkedMapImage(null);
     setFullImage(null);
     setDetailImage(null);
+    setAiText('');
+    setAiCandidates([]);
+    setAiMessage('');
     alert('목록에 성공적으로 추가되었습니다!');
   };
 
@@ -753,13 +839,67 @@ export default function SafetyInvestmentApp() {
             )}
           </div>
 
+          {/* 🤖 AI 자연어 빠른 입력 */}
+          <div className="border border-violet-200 rounded-2xl p-4 bg-violet-50/50 space-y-3">
+            <div>
+              <span className="text-xs font-black text-violet-900 block">✨ AI 빠른 입력</span>
+              <span className="text-[10px] text-gray-500 block mt-1">
+                현장에서 본 내용을 평소 말하듯 입력하면 회사 표준항목으로 추천합니다. 최종 등록은 사용자가 직접 확인합니다.
+              </span>
+            </div>
+
+            <textarea
+              value={aiText}
+              onChange={e => setAiText(e.target.value)}
+              placeholder="예: 밸브 주변 맨홀이 깨져있음"
+              maxLength={200}
+              rows={2}
+              className="w-full p-3 bg-white border border-violet-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:border-violet-500 resize-none"
+            />
+
+            <button
+              type="button"
+              onClick={handleAiClassify}
+              disabled={isAiLoading || !aiText.trim()}
+              className="w-full bg-violet-600 hover:bg-violet-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-black py-3.5 rounded-xl shadow-md text-sm transition active:scale-[0.99]"
+            >
+              {isAiLoading ? '⏳ AI가 표준항목 찾는 중...' : '✨ AI로 표준항목 찾기'}
+            </button>
+
+            {aiMessage && (
+              <div className="rounded-xl border border-violet-100 bg-white px-3 py-2.5 text-[11px] font-bold text-slate-700 leading-relaxed">
+                {aiMessage}
+              </div>
+            )}
+
+            {aiCandidates.length > 1 && (
+              <div className="space-y-2">
+                <span className="text-[10px] font-bold text-violet-800 block">추천 후보를 눌러주세요</span>
+
+                {aiCandidates.map((candidate) => (
+                  <button
+                    key={candidate.id}
+                    type="button"
+                    onClick={() => applyAiCandidate(candidate)}
+                    className="w-full text-left bg-white hover:bg-violet-50 border border-violet-200 rounded-xl px-3 py-3 transition active:scale-[0.99]"
+                  >
+                    <span className="text-[10px] font-black text-violet-600">표준 #{candidate.id}</span>
+                    <span className="block text-xs font-bold text-slate-800 mt-0.5">
+                      {candidate.category} &gt; {candidate.workName} &gt; {candidate.detailWork}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* 🎯 3단 연동 드롭다운 */}
           <div className="space-y-3 pt-2 border-t border-slate-200">
             <div>
               <label className="text-xs font-bold text-blue-900 block mb-1">🏗️ 시설물 선택</label>
               <select
                 value={formData.category}
-                onChange={e => setFormData({ ...formData, category: e.target.value })}
+                onChange={e => handleCategoryChange(e.target.value)}
                 className="w-full p-2.5 bg-blue-50/60 border border-blue-200 rounded-xl text-sm font-bold text-slate-800 outline-none focus:border-blue-500 cursor-pointer"
               >
                 {Object.keys(INVESTMENT_DATA).map(cat => (
@@ -900,4 +1040,4 @@ export default function SafetyInvestmentApp() {
       </div>
     </div>
   );
-}
+}       
